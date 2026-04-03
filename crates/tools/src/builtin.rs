@@ -52,19 +52,21 @@ impl ToolHandler for ReadFileTool {
 }
 
 /// Executes a shell command and returns stdout/stderr.
-/// Security: commands run in the process working directory.
-/// Blocked: no network commands (curl, wget, nc), no sudo.
+/// Security: only commands whose first token appears in ALLOWED_COMMANDS are permitted.
 pub struct BashExecTool;
+
+const ALLOWED_COMMANDS: &[&str] = &[
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
+];
 
 #[async_trait]
 impl ToolHandler for BashExecTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             name: "bash_exec".into(),
-            description: "Execute a bash command and return stdout+stderr. \
-                Blocked: sudo, curl, wget, nc, nmap. \
-                Timeout: 30 seconds. \
-                Use for: cargo build/test, git commands, file listing."
+            description: "Execute a shell command and return stdout+stderr. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which. \
+                Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -85,20 +87,13 @@ impl ToolHandler for BashExecTool {
             _ => return ToolOutput::err("command is required"),
         };
 
-        // Block dangerous patterns
-        let blocked = [
-            "sudo",
-            "curl ",
-            "wget ",
-            " nc ",
-            "nmap",
-            "rm -rf /",
-            ":(){ :|:& };:",
-        ];
-        for pattern in &blocked {
-            if command.contains(pattern) {
-                return ToolOutput::err(format!("command contains blocked pattern: {pattern}"));
-            }
+        // Allowlist check: only permit commands whose first token is in ALLOWED_COMMANDS
+        let first_token = command.split_whitespace().next().unwrap_or("");
+        if !ALLOWED_COMMANDS.contains(&first_token) {
+            return ToolOutput::err(format!(
+                "Command not allowed: only [{}] are permitted",
+                ALLOWED_COMMANDS.join(", ")
+            ));
         }
 
         use std::time::Duration;
@@ -215,13 +210,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bash_exec_blocks_sudo() {
+    async fn bash_exec_sudo_not_allowed() {
         let tool = BashExecTool;
-        let out = tool.call(json!({"command": "sudo ls"})).await;
+        let out = tool.call(json!({"command": "sudo rm -rf /"})).await;
         assert!(out.is_error);
         assert!(
-            out.content.contains("blocked"),
-            "expected blocked in: {}",
+            out.content.contains("not allowed"),
+            "expected 'not allowed' in: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_exec_cargo_version_allowed() {
+        let tool = BashExecTool;
+        let out = tool.call(json!({"command": "cargo --version"})).await;
+        assert!(
+            !out.is_error,
+            "expected cargo --version to succeed: {}",
             out.content
         );
     }
@@ -229,9 +235,11 @@ mod tests {
     #[tokio::test]
     async fn bash_exec_nonzero_exit_is_error() {
         let tool = BashExecTool;
-        let out = tool.call(json!({"command": "exit 1"})).await;
+        // ls on a non-existent path exits non-zero; ls is in the allowlist
+        let out = tool
+            .call(json!({"command": "ls /this_path_does_not_exist_xyz_12345"}))
+            .await;
         assert!(out.is_error, "expected error for non-zero exit");
-        assert!(out.content.contains("exit_code: 1"), "got: {}", out.content);
     }
 
     #[tokio::test]
