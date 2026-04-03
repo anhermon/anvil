@@ -1,0 +1,42 @@
+# https://taskfile.dev
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  install:
+    desc: Install the anvil CLI binary to PATH
+    cmds:
+      - cargo install --path crates/cli
+
+  build:
+    desc: Build release binary
+    cmds:
+      - cargo build --release
+
+  test:
+    desc: Run all workspace tests
+    cmds:
+      - cargo test --workspace
+
+  lint:
+    desc: Run clippy with -D warnings
+    cmds:
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  fmt:
+    desc: Format all source code
+    cmds:
+      - cargo fmt --all
+
+  check:
+    desc: Run fmt, lint, and test (full CI gate)
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+      - echo "All checks passed"

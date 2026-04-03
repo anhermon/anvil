@@ -126,6 +126,22 @@ cargo run -- memory search "yesterday's goal"
 
 ---
 
+## Development
+
+Install [Task](https://taskfile.dev/#/installation) then use these commands:
+
+```bash
+task build    # cargo build --release
+task test     # cargo test --workspace
+task lint     # cargo clippy --workspace --all-targets -- -D warnings
+task fmt      # cargo fmt --all
+task check    # fmt + lint + test (full CI gate)
+task install  # cargo install --path crates/cli
+task          # list all tasks
+```
+
+---
+
 ## Providers
 
 | Backend  | Env var             | Notes                                    |
