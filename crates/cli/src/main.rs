@@ -24,6 +24,8 @@ enum Commands {
     Config(commands::config::ConfigArgs),
     /// Manage and inspect memory
     Memory(commands::memory::MemoryArgs),
+    /// Batch-evaluate agent against a JSONL test suite
+    Eval(commands::eval::EvalArgs),
 }
 
 #[tokio::main]
@@ -41,5 +43,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Run(args) => commands::run::execute(args).await,
         Commands::Config(args) => commands::config::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
+        Commands::Eval(args) => commands::eval::execute(args).await,
     }
 }
