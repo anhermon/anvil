@@ -74,6 +74,35 @@ crates/
 
 ---
 
+## Installation
+
+```bash
+# Install from source (requires Rust 1.75+)
+cargo install --path crates/cli
+
+# Then run from anywhere:
+harness --help
+harness run --goal "your goal here"
+```
+
+Set `ANTHROPIC_API_KEY` or use an existing Claude Code session (see Auth below).
+
+## Usage
+
+```bash
+# Run an agent session with a goal
+harness run --goal "Summarise the current directory"
+
+# Run with the echo provider -- no API key, great for testing
+harness run --provider echo --goal "hello"
+
+# Check your config
+harness config --check
+
+# Search episodic memory
+harness memory search "recent goals"
+```
+
 ## Quick Start
 
 ```bash

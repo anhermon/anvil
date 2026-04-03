@@ -10,19 +10,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: Build, Test, Clippy
+  check:
+    name: Check & Format
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-
-      - name: Cache cargo registry
+          components: rustfmt, clippy
+      - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
@@ -30,17 +27,41 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Build
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+      - name: build
         run: cargo build --workspace
-
-      - name: Test
+      - name: test
         run: cargo test --workspace
 
-      - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
-
-      - name: Format check
-        run: cargo fmt --check --all
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        # RUSTSEC-2023-0071: rsa timing sidechannel — pulled in via sqlx-mysql
+        # which we do not use (SQLite-only). No upstream fix available.
+        run: cargo audit --ignore RUSTSEC-2023-0071

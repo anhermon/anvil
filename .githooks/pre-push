@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -e
+
+echo "🚀 Running pre-push checks..."
+
+# Full test suite
+echo "  → cargo test --workspace"
+cargo test --workspace
+
+echo "✅ Pre-push checks passed"
