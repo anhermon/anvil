@@ -9,7 +9,7 @@ use harness_core::{
 };
 use harness_memory::MemoryDb;
 use harness_tools::{
-    builtin::{EchoTool, ReadFileTool, SpawnSubagentTool},
+    builtin::{BashExecTool, EchoTool, ReadFileTool, SpawnSubagentTool, WriteFileTool},
     ToolRegistry,
 };
 use tracing::{debug, info, warn};
@@ -42,6 +42,8 @@ impl Agent {
         tools.register(EchoTool);
         tools.register(ReadFileTool);
         tools.register(SpawnSubagentTool);
+        tools.register(BashExecTool);
+        tools.register(WriteFileTool);
         Self {
             provider,
             memory,
