@@ -1,10 +1,11 @@
 mod agent;
 mod commands;
+mod ui;
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{fmt, EnvFilter};
 
-/// paperclip-harness — provider-agnostic Rust agent harness.
+/// paperclip-harness -- provider-agnostic Rust agent harness.
 #[derive(Parser)]
 #[command(name = "harness", version, about, long_about = None)]
 struct Cli {
@@ -12,7 +13,7 @@ struct Cli {
     command: Commands,
 
     /// Log level (trace, debug, info, warn, error)
-    #[arg(long, env = "RUST_LOG", default_value = "info", global = true)]
+    #[arg(long, env = "RUST_LOG", default_value = "warn", global = true)]
     log_level: String,
 }
 
@@ -34,7 +35,7 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Init tracing
+    // Init tracing -- default to warn so UI output is not drowned by logs.
     fmt()
         .with_env_filter(EnvFilter::new(&cli.log_level))
         .with_target(false)

@@ -17,6 +17,30 @@ use tracing::{debug, info, warn};
 /// Maximum sub-agent nesting depth to prevent infinite recursion.
 const MAX_SUBAGENT_DEPTH: usize = 4;
 
+/// Callback interface for terminal UI events emitted by the agent loop.
+///
+/// The default no-op implementation is used for sub-agents and tests so they
+/// stay silent. The root CLI turn installs a coloured implementation.
+pub trait UiHook: Send + Sync {
+    /// Called just before a tool is dispatched.
+    fn on_tool_call(&self, name: &str, input_preview: &str);
+    /// Called with the tool output after it returns.
+    fn on_tool_result(&self, output: &str);
+    /// Called while waiting for the provider to return (start of each turn).
+    fn on_thinking(&self);
+    /// Called when the provider has returned (end of thinking).
+    fn on_thinking_done(&self);
+}
+
+/// Silent implementation used for sub-agents and unit tests.
+pub struct NoopHook;
+impl UiHook for NoopHook {
+    fn on_tool_call(&self, _name: &str, _input_preview: &str) {}
+    fn on_tool_result(&self, _output: &str) {}
+    fn on_thinking(&self) {}
+    fn on_thinking_done(&self) {}
+}
+
 /// Drives one agent session: send system prompt + goal, loop until done.
 pub struct Agent {
     provider: Arc<dyn Provider>,
@@ -25,11 +49,18 @@ pub struct Agent {
     config: Config,
     /// Nesting depth: 0 for the root agent, incremented for each sub-agent.
     depth: usize,
+    /// UI hook -- silent by default; replaced by the CLI for the root agent.
+    hook: Arc<dyn UiHook>,
 }
 
 impl Agent {
     pub fn new(provider: Arc<dyn Provider>, memory: Arc<MemoryDb>, config: Config) -> Self {
         Self::new_with_depth(provider, memory, config, 0)
+    }
+
+    pub fn with_hook(mut self, hook: Arc<dyn UiHook>) -> Self {
+        self.hook = hook;
+        self
     }
 
     fn new_with_depth(
@@ -50,6 +81,7 @@ impl Agent {
             tools,
             config,
             depth,
+            hook: Arc::new(NoopHook),
         }
     }
 
@@ -105,17 +137,19 @@ impl Agent {
                 "agent turn"
             );
 
+            self.hook.on_thinking();
             let response = self
                 .provider
                 .complete_with_tools(&messages, &tool_defs)
                 .await?;
+            self.hook.on_thinking_done();
 
             let preview = response.message.text().unwrap_or("").to_string();
             info!(
                 tokens_out = response.usage.output_tokens,
                 stop_reason = ?response.stop_reason,
                 depth = self.depth,
-                "← {}",
+                "response: {}",
                 &preview[..preview.len().min(120)]
             );
 
@@ -162,7 +196,19 @@ impl Agent {
                     // Execute each tool and collect result blocks.
                     let mut result_blocks: Vec<ContentBlock> = Vec::new();
                     for (tool_use_id, name, input) in tool_calls {
-                        info!(tool = %name, depth = self.depth, "→ calling tool");
+                        info!(tool = %name, depth = self.depth, "calling tool");
+
+                        // Build a compact preview of the input for the UI hook.
+                        let input_preview = input
+                            .as_object()
+                            .and_then(|m| m.values().next())
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .chars()
+                            .take(60)
+                            .collect::<String>();
+                        self.hook.on_tool_call(&name, &input_preview);
+
                         let output = if name == "spawn_subagent" {
                             let sub_goal = input["goal"].as_str().unwrap_or("").to_string();
                             let context = input
@@ -184,6 +230,7 @@ impl Agent {
                         if output.is_error {
                             warn!(tool = %name, "tool returned error: {}", output.content);
                         }
+                        self.hook.on_tool_result(&output.content);
                         result_blocks.push(ContentBlock::ToolResult {
                             tool_use_id,
                             content: output.content,
@@ -206,12 +253,12 @@ impl Agent {
 
     /// Spawn a nested sub-agent to handle a delegated goal.
     ///
-    /// Returns the sub-agent's final response text, or an error if depth
+    /// Returns the sub-agent final response text, or an error if depth
     /// exceeds [`MAX_SUBAGENT_DEPTH`].
     async fn spawn_subagent(&self, goal: &str, context: &str) -> anyhow::Result<String> {
         if self.depth >= MAX_SUBAGENT_DEPTH {
             return Err(anyhow::anyhow!(
-                "sub-agent depth limit ({MAX_SUBAGENT_DEPTH}) reached — cannot spawn further"
+                "sub-agent depth limit ({MAX_SUBAGENT_DEPTH}) reached -- cannot spawn further"
             ));
         }
 
@@ -300,7 +347,6 @@ mod tests {
         Arc::new(MemoryDb::in_memory().await.unwrap())
     }
 
-    /// Helpers for building TurnResponse values.
     fn tool_use_response(
         tool_use_id: &str,
         tool_name: &str,
@@ -335,8 +381,6 @@ mod tests {
 
     #[tokio::test]
     async fn tool_loop_calls_tool_and_continues() {
-        // Turn 1: provider requests an echo tool call.
-        // Turn 2: provider returns EndTurn after seeing the tool result.
         let provider = Arc::new(ScriptedProvider::new(vec![
             tool_use_response("call-1", "echo", serde_json::json!({"message": "ping"})),
             end_turn_response("done"),
@@ -355,18 +399,17 @@ mod tests {
             },
             config,
             depth: 0,
+            hook: Arc::new(NoopHook),
         };
 
         let session = agent.run("test goal").await.unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
-        // messages: system + user + assistant(tool_use) + user(tool_result) + assistant(end_turn)
-        assert_eq!(session.messages.len(), 3); // assistant(tool_use) + user(tool_result) + assistant(end_turn)
+        assert_eq!(session.messages.len(), 3);
     }
 
     #[tokio::test]
     async fn max_iterations_cap_is_respected() {
-        // Provider always asks for a tool call; cap at 2 iterations.
         let responses: Vec<TurnResponse> = (0..10)
             .map(|i| {
                 tool_use_response(
@@ -391,6 +434,7 @@ mod tests {
             },
             config,
             depth: 0,
+            hook: Arc::new(NoopHook),
         };
 
         let session = agent.run("loop forever").await.unwrap();
@@ -411,24 +455,18 @@ mod tests {
             tools: ToolRegistry::new(),
             config,
             depth: 0,
+            hook: Arc::new(NoopHook),
         };
 
         let session = agent.run("simple goal").await.unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
         assert_eq!(session.iteration, 1);
-        assert_eq!(session.messages.len(), 1); // only the assistant response
+        assert_eq!(session.messages.len(), 1);
     }
 
     #[tokio::test]
     async fn subagent_spawned_and_returns_result() {
-        // Main agent: spawns a sub-agent, then finishes after seeing the result.
-        // Sub-agent: immediately returns EndTurn with "sub-result".
-        //
-        // ScriptedProvider is shared — responses interleave:
-        //   pop 1 (main): spawn_subagent tool use
-        //   pop 2 (sub):  end_turn "sub-result"
-        //   pop 3 (main): end_turn "main done"
         let provider = Arc::new(ScriptedProvider::new(vec![
             tool_use_response(
                 "sa-1",
@@ -446,14 +484,12 @@ mod tests {
         let session = agent.run("delegate work").await.unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
-        // Last message should be the main agent's final EndTurn response.
         let last = session.messages.last().unwrap();
         assert_eq!(last.text(), Some("main done"));
     }
 
     #[tokio::test]
     async fn subagent_depth_limit_returns_error_output() {
-        // Directly test spawn_subagent at max depth returns an Err.
         let provider = Arc::new(ScriptedProvider::new(vec![]));
         let memory = make_memory().await;
         let config = make_config(10);
@@ -471,9 +507,6 @@ mod tests {
 
     #[tokio::test]
     async fn subagent_with_context_prepends_to_goal() {
-        // Verify that when context is non-empty it is prepended to the goal
-        // by confirming the sub-agent session runs with the combined text.
-        // We use a provider that immediately ends so the sub-agent session completes.
         let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
             "context-aware result",
         )]));

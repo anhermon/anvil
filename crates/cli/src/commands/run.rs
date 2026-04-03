@@ -1,5 +1,6 @@
 use std::io::Write as IoWrite;
 use std::sync::Arc;
+use std::time::Instant;
 
 use clap::Args;
 use futures::StreamExt;
@@ -9,8 +10,10 @@ use harness_core::{
     providers::{ClaudeCodeProvider, ClaudeProvider},
 };
 use harness_memory::MemoryDb;
+use indicatif::ProgressBar;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, UiHook};
+use crate::ui;
 
 #[derive(Args)]
 pub struct RunArgs {
@@ -27,6 +30,61 @@ pub struct RunArgs {
     pub stream: bool,
 }
 
+/// CLI UI hook: drives the spinner and prints tool call/result lines.
+struct CliHook {
+    spinner: std::sync::Mutex<Option<ProgressBar>>,
+}
+
+impl CliHook {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            spinner: std::sync::Mutex::new(None),
+        })
+    }
+}
+
+impl UiHook for CliHook {
+    fn on_thinking(&self) {
+        let pb = ui::thinking_spinner("thinking…");
+        let mut guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(pb);
+    }
+
+    fn on_thinking_done(&self) {
+        let mut guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pb) = guard.take() {
+            pb.finish_and_clear();
+        }
+    }
+
+    fn on_tool_call(&self, name: &str, input_preview: &str) {
+        // Pause spinner output so tool lines print cleanly.
+        {
+            let guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(pb) = guard.as_ref() {
+                pb.suspend(|| {
+                    ui::print_tool_call(name, input_preview);
+                });
+                return;
+            }
+        }
+        ui::print_tool_call(name, input_preview);
+    }
+
+    fn on_tool_result(&self, output: &str) {
+        {
+            let guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(pb) = guard.as_ref() {
+                pb.suspend(|| {
+                    ui::print_tool_result(output);
+                });
+                return;
+            }
+        }
+        ui::print_tool_result(output);
+    }
+}
+
 pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
 
@@ -41,7 +99,6 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             Arc::new(harness_core::provider::EchoProvider)
         }
         "claude-code" | "cc" => {
-            // The --provider flag selects the backend; model comes from config.
             let model = &config.provider.model;
             tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
             Arc::new(ClaudeCodeProvider::new(model))
@@ -64,6 +121,9 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             ),
             harness_core::message::Message::user(&args.goal),
         ];
+
+        ui::print_banner();
+        ui::print_session_header("stream", &config.provider.model, &backend);
 
         println!("\n{}", "─".repeat(60));
         let mut token_stream = provider.stream(&msgs).await?;
@@ -92,15 +152,30 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
         println!("Streaming complete.");
     } else {
-        let agent = Agent::new(provider, memory, config);
-        let session = agent.run(&args.goal).await?;
+        let hook = CliHook::new();
+        let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone())
+            .with_hook(Arc::clone(&hook) as Arc<dyn UiHook>);
 
-        println!("\n{}", "─".repeat(60));
+        ui::print_banner();
+        ui::print_session_header("pending", &config.provider.model, &backend);
+
+        let t0 = Instant::now();
+        let session = agent.run(&args.goal).await?;
+        let elapsed_ms = t0.elapsed().as_millis() as u64;
+
+        // Collect token totals from session messages (best-effort; usage not
+        // stored per-message, so we report iteration count only here).
         if let Some(msg) = session.messages.last() {
-            println!("{}", msg.text().unwrap_or("(no response)"));
+            ui::print_response(msg.text().unwrap_or("(no response)"));
         }
-        println!("{}", "─".repeat(60));
-        println!("Session: {} | Status: {:?}", session.id, session.status);
+
+        ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
+        eprintln!(
+            "  {}  session {} | status {:?}",
+            console::style("◆").dim(),
+            console::style(&session.id.to_string()[..8]).dim(),
+            session.status,
+        );
     }
 
     Ok(())
