@@ -54,6 +54,11 @@ impl MemoryDb {
         .execute(pool)
         .await?;
 
+        // Add session_name column if it does not exist yet (idempotent migration).
+        let _ = sqlx::query("ALTER TABLE episodes ADD COLUMN session_name TEXT")
+            .execute(pool)
+            .await;
+
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id)")
             .execute(pool)
             .await?;
@@ -61,6 +66,12 @@ impl MemoryDb {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at)")
             .execute(pool)
             .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_session_name ON episodes(session_name)",
+        )
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             r#"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
@@ -93,11 +104,40 @@ impl MemoryDb {
         .execute(pool)
         .await?;
 
+        // Migration: add session_name column to episodes if it doesn't exist.
+        // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check the
+        // column list first.
+        let cols: Vec<String> = sqlx::query("PRAGMA table_info(episodes)")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| {
+                let name: String = row.try_get("name").unwrap_or_default();
+                name
+            })
+            .collect();
+
+        if !cols.iter().any(|c| c == "session_name") {
+            sqlx::query("ALTER TABLE episodes ADD COLUMN session_name TEXT")
+                .execute(pool)
+                .await?;
+            sqlx::query(
+                "CREATE INDEX IF NOT EXISTS idx_episodes_session_name ON episodes(session_name)",
+            )
+            .execute(pool)
+            .await?;
+        }
+
         Ok(())
     }
 
-    /// Insert a new episode.
+    /// Insert a new episode (no named session tag).
     pub async fn insert(&self, ep: &Episode) -> Result<()> {
+        self.insert_named(ep, None).await
+    }
+
+    /// Insert a new episode, optionally tagged with a named session.
+    pub async fn insert_named(&self, ep: &Episode, session_name: Option<&str>) -> Result<()> {
         let kind = match ep.kind {
             EpisodeKind::Turn => "turn",
             EpisodeKind::ToolCall => "tool_call",
@@ -107,8 +147,8 @@ impl MemoryDb {
         let metadata = ep.metadata.as_ref().map(|m| m.to_string());
 
         sqlx::query(
-            r#"INSERT INTO episodes (id, session_id, kind, role, content, metadata, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT INTO episodes (id, session_id, kind, role, content, metadata, created_at, session_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(ep.id.to_string())
         .bind(ep.session_id.to_string())
@@ -117,13 +157,14 @@ impl MemoryDb {
         .bind(&ep.content)
         .bind(metadata)
         .bind(ep.created_at.to_rfc3339())
+        .bind(session_name)
         .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    /// Retrieve recent episodes for a session, newest-first, limited to `limit`.
+    /// Retrieve recent episodes for a session UUID, newest-first, limited to `limit`.
     pub async fn recent(&self, session_id: Uuid, limit: i64) -> Result<Vec<Episode>> {
         let rows = sqlx::query(
             r#"SELECT id, session_id, kind, role, content, metadata, created_at
@@ -138,8 +179,32 @@ impl MemoryDb {
         rows.iter().map(parse_row).collect()
     }
 
+    /// Retrieve recent episodes for a named session, oldest-first (chronological
+    /// order so they can be replayed as conversation history), limited to `limit`.
+    pub async fn recent_by_name(&self, session_name: &str, limit: i64) -> Result<Vec<Episode>> {
+        let rows = sqlx::query(
+            r#"SELECT id, session_id, kind, role, content, metadata, created_at
+               FROM episodes WHERE session_name = ?
+               ORDER BY created_at ASC LIMIT ?"#,
+        )
+        .bind(session_name)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(parse_row).collect()
+    }
+
     /// Full-text search across episode content.
+    ///
+    /// The query is split into individual terms and joined with FTS5 OR
+    /// syntax so that a multi-word goal like "explain rust ownership" matches
+    /// episodes that contain any of those words rather than requiring all of
+    /// them to be present.
     pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<Episode>> {
+        // Convert "explain rust ownership" -> "explain OR rust OR ownership"
+        let fts_query = query.split_whitespace().collect::<Vec<_>>().join(" OR ");
+
         let rows = sqlx::query(
             r#"SELECT e.id, e.session_id, e.kind, e.role, e.content, e.metadata, e.created_at
                FROM episodes_fts fts
@@ -147,7 +212,7 @@ impl MemoryDb {
                WHERE episodes_fts MATCH ?
                ORDER BY rank LIMIT ?"#,
         )
-        .bind(query)
+        .bind(fts_query)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -202,5 +267,40 @@ mod tests {
         let results = db.recent(session_id, 10).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].content, "hello world");
+    }
+
+    #[tokio::test]
+    async fn insert_named_and_retrieve_by_name() {
+        let db = MemoryDb::in_memory().await.unwrap();
+        let session_id = Uuid::new_v4();
+        let ep = crate::Episode::turn(session_id, "user", "named session content");
+        db.insert_named(&ep, Some("myproject")).await.unwrap();
+
+        // Should be retrievable by session name.
+        let results = db.recent_by_name("myproject", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content, "named session content");
+
+        // Should NOT appear under a different session name.
+        let other = db.recent_by_name("otherproject", 10).await.unwrap();
+        assert!(other.is_empty());
+    }
+
+    #[tokio::test]
+    async fn recent_by_name_returns_chronological_order() {
+        let db = MemoryDb::in_memory().await.unwrap();
+        let session_id = Uuid::new_v4();
+
+        for i in 0..3u32 {
+            let mut ep = crate::Episode::turn(session_id, "user", format!("message {i}"));
+            // Stagger timestamps so ordering is deterministic.
+            ep.created_at = chrono::Utc::now() + chrono::Duration::milliseconds(i as i64 * 10);
+            db.insert_named(&ep, Some("ordered-session")).await.unwrap();
+        }
+
+        let results = db.recent_by_name("ordered-session", 10).await.unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].content, "message 0");
+        assert_eq!(results[2].content, "message 2");
     }
 }
