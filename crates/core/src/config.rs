@@ -49,7 +49,7 @@ impl Default for Config {
         Self {
             provider: ProviderConfig {
                 backend: "claude".to_string(),
-                model: "claude-sonnet-4-5".to_string(),
+                model: "claude-haiku-4-5".to_string(),
                 max_tokens: 8192,
                 api_key: None,
                 base_url: None,
