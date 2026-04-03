@@ -52,6 +52,7 @@ dashmap = "5"
 harness-core = { path = "crates/core" }
 harness-tools = { path = "crates/tools" }
 harness-memory = { path = "crates/memory" }
+harness-github = { path = "crates/github" }
 
 [profile.release]
 lto = true

@@ -12,6 +12,7 @@ path = "src/main.rs"
 harness-core = { workspace = true }
 harness-tools = { workspace = true }
 harness-memory = { workspace = true }
+harness-github = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }
