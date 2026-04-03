@@ -92,7 +92,7 @@ impl ToolHandler for ReadFileTool {
         if p.components().any(|c| c == std::path::Component::ParentDir) {
             return ToolOutput::err("path traversal (..) is not allowed");
         }
-        match std::fs::read_to_string(&raw) {
+        match tokio::fs::read_to_string(&raw).await {
             Ok(contents) => ToolOutput::ok(contents),
             Err(e) => ToolOutput::err(format!("read_file failed for {raw}: {e}")),
         }
