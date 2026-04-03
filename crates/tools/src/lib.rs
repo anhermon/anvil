@@ -1,6 +1,7 @@
+pub mod builtin;
 pub mod registry;
 pub mod schema;
-pub mod builtin;
 
-pub use registry::{ToolRegistry, ToolHandler};
+pub use builtin::{BashExecTool, EchoTool, ReadFileTool, WriteFileTool};
+pub use registry::{ToolHandler, ToolRegistry};
 pub use schema::ToolSchema;
