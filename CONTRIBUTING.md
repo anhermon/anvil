@@ -90,3 +90,16 @@ Agents committing to this repo via Paperclip must:
 ## Questions
 
 Open a [GitHub Discussion](https://github.com/anhermon/paperclip-harness/discussions) for open-ended questions. Use issues for concrete bugs or proposals.
+
+## Setting Up Dev Hooks
+
+After cloning, install git hooks:
+
+```bash
+bash scripts/setup-hooks.sh
+```
+
+This installs:
+- **pre-commit**: `cargo fmt --check` + `cargo clippy -D warnings`
+- **pre-push**: `cargo test --workspace`
+- **commit-msg**: Enforces Conventional Commits format

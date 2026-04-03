@@ -1,7 +1,10 @@
+use crate::{
+    error::Result,
+    message::{Message, TurnResponse},
+};
 use async_trait::async_trait;
-use std::pin::Pin;
 use futures::Stream;
-use crate::{error::Result, message::{Message, TurnResponse}};
+use std::pin::Pin;
 
 /// A streaming token chunk from the provider.
 #[derive(Debug, Clone)]
@@ -29,7 +32,10 @@ pub trait Provider: Send + Sync + 'static {
         use futures::stream;
         let response = self.complete(messages).await?;
         let text = response.message.text().unwrap_or("").to_string();
-        let chunk = StreamChunk { delta: text, done: true };
+        let chunk = StreamChunk {
+            delta: text,
+            done: true,
+        };
         Ok(Box::pin(stream::once(async move { Ok(chunk) })))
     }
 
@@ -50,9 +56,16 @@ impl Provider for EchoProvider {
 
     async fn complete(&self, messages: &[Message]) -> Result<TurnResponse> {
         use crate::message::{MessageContent, Role, StopReason, Usage};
-        let last = messages.last().and_then(|m| m.text()).unwrap_or("(empty)").to_string();
+        let last = messages
+            .last()
+            .and_then(|m| m.text())
+            .unwrap_or("(empty)")
+            .to_string();
         Ok(TurnResponse {
-            message: Message { role: Role::Assistant, content: MessageContent::Text(format!("echo: {last}")) },
+            message: Message {
+                role: Role::Assistant,
+                content: MessageContent::Text(format!("echo: {last}")),
+            },
             stop_reason: StopReason::EndTurn,
             usage: Usage::default(),
             model: "echo".to_string(),

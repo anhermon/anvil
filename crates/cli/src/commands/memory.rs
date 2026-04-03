@@ -36,13 +36,23 @@ pub async fn execute(args: MemoryArgs) -> anyhow::Result<()> {
                 println!("No results for: {query}");
             }
             for ep in results {
-                println!("[{}] {}: {}", ep.created_at.format("%Y-%m-%d %H:%M"), ep.role, &ep.content[..ep.content.len().min(120)]);
+                println!(
+                    "[{}] {}: {}",
+                    ep.created_at.format("%Y-%m-%d %H:%M"),
+                    ep.role,
+                    &ep.content[..ep.content.len().min(120)]
+                );
             }
         }
         MemoryCommands::Recent { session_id, limit } => {
             let results = memory.recent(session_id, limit).await?;
             for ep in results {
-                println!("[{}] {}: {}", ep.created_at.format("%Y-%m-%d %H:%M"), ep.role, &ep.content[..ep.content.len().min(120)]);
+                println!(
+                    "[{}] {}: {}",
+                    ep.created_at.format("%Y-%m-%d %H:%M"),
+                    ep.role,
+                    &ep.content[..ep.content.len().min(120)]
+                );
             }
         }
     }

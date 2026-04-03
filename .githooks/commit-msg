@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+MSG=$(cat "$1")
+PATTERN="^(feat|fix|docs|style|refactor|test|chore|ci|perf|revert)(\(.+\))?: .+"
+
+if ! echo "$MSG" | grep -qE "$PATTERN"; then
+  echo "❌ Commit message does not follow Conventional Commits format"
+  echo "   Expected: <type>(<scope>): <description>"
+  echo "   Example: feat(core): add streaming support"
+  echo "   Types: feat, fix, docs, style, refactor, test, chore, ci, perf, revert"
+  exit 1
+fi
+echo "✅ Commit message format OK"

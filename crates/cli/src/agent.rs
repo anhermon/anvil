@@ -7,13 +7,14 @@ use harness_core::{
     session::{Session, SessionStatus},
 };
 use harness_memory::MemoryDb;
-use harness_tools::{ToolRegistry, builtin::EchoTool};
+use harness_tools::{builtin::EchoTool, ToolRegistry};
 use tracing::{debug, info};
 
 /// Drives one agent session: send system prompt + goal, loop until done.
 pub struct Agent {
     provider: Arc<dyn Provider>,
     memory: Arc<MemoryDb>,
+    #[allow(dead_code)]
     tools: ToolRegistry,
     config: Config,
 }
@@ -22,7 +23,12 @@ impl Agent {
     pub fn new(provider: Arc<dyn Provider>, memory: Arc<MemoryDb>, config: Config) -> Self {
         let tools = ToolRegistry::new();
         tools.register(EchoTool);
-        Self { provider, memory, tools, config }
+        Self {
+            provider,
+            memory,
+            tools,
+            config,
+        }
     }
 
     /// Run until the agent signals completion or max iterations reached.
@@ -49,34 +55,35 @@ impl Agent {
             self.config.agent.max_iterations
         };
 
-        loop {
-            if session.iteration >= max_iter {
-                info!("max iterations reached");
-                session.finish(SessionStatus::Done);
-                break;
-            }
-
-            debug!(iteration = session.iteration, "agent turn");
-            let response = self.provider.complete(&messages).await?;
-
-            let text = response.message.text().unwrap_or("").to_string();
-            info!(tokens_out = response.usage.output_tokens, "← {}", &text[..text.len().min(120)]);
-
-            // Record in session
-            session.push(response.message.clone());
-
-            // Persist to memory
-            let ep = harness_memory::Episode::turn(
-                session.id,
-                "assistant",
-                response.message.text().unwrap_or(""),
-            );
-            self.memory.insert(&ep).await?;
-
-            // For v0: stop after one assistant turn (no tool loop yet)
+        if session.iteration >= max_iter {
+            info!("max iterations reached");
             session.finish(SessionStatus::Done);
-            break;
+            return Ok(session);
         }
+
+        debug!(iteration = session.iteration, "agent turn");
+        let response = self.provider.complete(&messages).await?;
+
+        let text = response.message.text().unwrap_or("").to_string();
+        info!(
+            tokens_out = response.usage.output_tokens,
+            "← {}",
+            &text[..text.len().min(120)]
+        );
+
+        // Record in session
+        session.push(response.message.clone());
+
+        // Persist to memory
+        let ep = harness_memory::Episode::turn(
+            session.id,
+            "assistant",
+            response.message.text().unwrap_or(""),
+        );
+        self.memory.insert(&ep).await?;
+
+        // For v0: stop after one assistant turn (no tool loop yet)
+        session.finish(SessionStatus::Done);
 
         Ok(session)
     }

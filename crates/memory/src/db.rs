@@ -1,8 +1,8 @@
+use crate::episode::{Episode, EpisodeKind};
 use anyhow::Result;
-use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use std::path::Path;
 use uuid::Uuid;
-use crate::episode::{Episode, EpisodeKind};
 
 /// SQLite-backed memory store.
 pub struct MemoryDb {
@@ -135,7 +135,7 @@ impl MemoryDb {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.iter().map(|row| parse_row(row)).collect()
+        rows.iter().map(parse_row).collect()
     }
 
     /// Full-text search across episode content.
@@ -152,7 +152,7 @@ impl MemoryDb {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.iter().map(|row| parse_row(row)).collect()
+        rows.iter().map(parse_row).collect()
     }
 
     pub fn pool(&self) -> &SqlitePool {
@@ -179,7 +179,9 @@ fn parse_row(row: &sqlx::sqlite::SqliteRow) -> Result<Episode> {
         kind,
         role: row.try_get("role")?,
         content: row.try_get("content")?,
-        metadata: metadata_str.as_deref().and_then(|s| serde_json::from_str(s).ok()),
+        metadata: metadata_str
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok()),
         created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
             .map(|dt| dt.with_timezone(&chrono::Utc))
             .unwrap_or_else(|_| chrono::Utc::now()),
