@@ -53,6 +53,12 @@ harness-core = { path = "crates/core" }
 harness-tools = { path = "crates/tools" }
 harness-memory = { path = "crates/memory" }
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
 [profile.release]
 lto = true
 codegen-units = 1
