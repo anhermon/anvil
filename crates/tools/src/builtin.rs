@@ -342,7 +342,6 @@ mod tests {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Skill evolution tools
 // ---------------------------------------------------------------------------
@@ -358,7 +357,9 @@ fn skills_dir() -> std::path::PathBuf {
 fn parse_uses(c: &str) -> u64 {
     for line in c.lines() {
         if let Some(r) = line.trim().strip_prefix("uses:") {
-            if let Ok(n) = r.trim().parse::<u64>() { return n; }
+            if let Ok(n) = r.trim().parse::<u64>() {
+                return n;
+            }
         }
     }
     0
@@ -366,7 +367,9 @@ fn parse_uses(c: &str) -> u64 {
 fn parse_version(c: &str) -> u64 {
     for line in c.lines() {
         if let Some(r) = line.trim().strip_prefix("version:") {
-            if let Ok(n) = r.trim().parse::<u64>() { return n; }
+            if let Ok(n) = r.trim().parse::<u64>() {
+                return n;
+            }
         }
     }
     1
@@ -399,15 +402,32 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     loop {
         let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
         let days_in_year = if leap { 366 } else { 365 };
-        if d < days_in_year { break; }
+        if d < days_in_year {
+            break;
+        }
         d -= days_in_year;
         y += 1;
     }
     let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let days_in_month = [31u64, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days_in_month = [
+        31u64,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 1u64;
     for &dim in &days_in_month {
-        if d < dim { break; }
+        if d < dim {
+            break;
+        }
         d -= dim;
         mo += 1;
     }
@@ -422,7 +442,14 @@ fn utc_date_string() -> String {
     let (y, m, d) = days_to_ymd(days);
     format!("{y:04}-{m:02}-{d:02}")
 }
-fn build_skill_file(name: &str, description: &str, content: &str, version: u64, uses: u64, created: &str) -> String {
+fn build_skill_file(
+    name: &str,
+    description: &str,
+    content: &str,
+    version: u64,
+    uses: u64,
+    created: &str,
+) -> String {
     format!(
         "---\nname: {name}\ndescription: {description}\nversion: {version}\ncreated: {created}\nuses: {uses}\n---\n\n{content}\n"
     )
@@ -451,16 +478,29 @@ impl ToolHandler for ListSkillsTool {
         let mut skills: Vec<serde_json::Value> = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
-            let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-            if name.is_empty() { continue; }
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if name.is_empty() {
+                continue;
+            }
             let content = std::fs::read_to_string(&path).unwrap_or_default();
             let desc = parse_description(&content);
             let ver = parse_version(&content);
             let uses = parse_uses(&content);
             skills.push(serde_json::json!({"name": name, "description": desc, "version": ver, "uses": uses}));
         }
-        skills.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
+        skills.sort_by(|a, b| {
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["name"].as_str().unwrap_or(""))
+        });
         match serde_json::to_string(&skills) {
             Ok(s) => ToolOutput::ok(s),
             Err(e) => ToolOutput::err(format!("serialization failed: {e}")),
@@ -527,7 +567,8 @@ impl ToolHandler for SaveSkillTool {
             let existing = std::fs::read_to_string(&path).unwrap_or_default();
             let old_ver = parse_version(&existing);
             let old_uses = parse_uses(&existing);
-            let old_created = existing.lines()
+            let old_created = existing
+                .lines()
                 .find(|l| l.trim().starts_with("created:"))
                 .and_then(|l| l.split_once(':'))
                 .map(|(_, v)| v.trim().to_string())
@@ -582,7 +623,9 @@ impl ToolHandler for RefineSkillTool {
         let old_ver = parse_version(&content);
         let new_ver = old_ver + 1;
         let mut updated = update_frontmatter_field(&content, "version", new_ver);
-        updated.push_str(&format!("\n## Refinement Notes (v{new_ver})\n\n{feedback}\n"));
+        updated.push_str(&format!(
+            "\n## Refinement Notes (v{new_ver})\n\n{feedback}\n"
+        ));
         match std::fs::write(&path, &updated) {
             Ok(()) => ToolOutput::ok(updated),
             Err(e) => ToolOutput::err(format!("refine_skill failed: {e}")),
@@ -604,7 +647,8 @@ mod skill_tests {
     async fn unique_skills_dir() -> (std::path::PathBuf, MutexGuard<'static, ()>) {
         let guard = get_env_lock().lock().await;
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("anvil_skill_test_{}_{}", id, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("anvil_skill_test_{}_{}", id, std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("ANVIL_SKILLS_DIR", &dir);
         (dir, guard)
@@ -612,18 +656,25 @@ mod skill_tests {
     #[tokio::test]
     async fn save_skill_creates_new_file() {
         let (tmp, _guard) = unique_skills_dir().await;
-        let out = SaveSkillTool.call(json!({"name":"test-save","description":"A test skill","content":"# Test"})).await;
+        let out = SaveSkillTool
+            .call(json!({"name":"test-save","description":"A test skill","content":"# Test"}))
+            .await;
         assert!(!out.is_error, "save failed: {}", out.content);
         let v: serde_json::Value = serde_json::from_str(&out.content).unwrap();
-        assert_eq!(v["saved"], true); assert_eq!(v["version"], 1);
+        assert_eq!(v["saved"], true);
+        assert_eq!(v["version"], 1);
         let c = std::fs::read_to_string(tmp.join("test-save.md")).unwrap();
         assert!(c.contains("version: 1") && c.contains("description: A test skill"));
     }
     #[tokio::test]
     async fn save_skill_bumps_version_on_update() {
         let (tmp, _guard) = unique_skills_dir().await;
-        SaveSkillTool.call(json!({"name":"vs","description":"first","content":"original"})).await;
-        let out = SaveSkillTool.call(json!({"name":"vs","description":"updated","content":"improved"})).await;
+        SaveSkillTool
+            .call(json!({"name":"vs","description":"first","content":"original"}))
+            .await;
+        let out = SaveSkillTool
+            .call(json!({"name":"vs","description":"updated","content":"improved"}))
+            .await;
         assert!(!out.is_error);
         let v: serde_json::Value = serde_json::from_str(&out.content).unwrap();
         assert_eq!(v["version"], 2);
@@ -633,13 +684,17 @@ mod skill_tests {
     #[tokio::test]
     async fn save_skill_missing_name_is_error() {
         let (_tmp, _guard) = unique_skills_dir().await;
-        let out = SaveSkillTool.call(json!({"description":"x","content":"y"})).await;
+        let out = SaveSkillTool
+            .call(json!({"description":"x","content":"y"}))
+            .await;
         assert!(out.is_error);
     }
     #[tokio::test]
     async fn read_skill_increments_uses() {
         let (tmp, _guard) = unique_skills_dir().await;
-        SaveSkillTool.call(json!({"name":"rm","description":"r","content":"content"})).await;
+        SaveSkillTool
+            .call(json!({"name":"rm","description":"r","content":"content"}))
+            .await;
         let out = ReadSkillTool.call(json!({"name":"rm"})).await;
         assert!(!out.is_error);
         let c = std::fs::read_to_string(tmp.join("rm.md")).unwrap();
@@ -654,16 +709,25 @@ mod skill_tests {
     #[tokio::test]
     async fn list_skills_returns_empty_array_when_no_dir() {
         let (_base_tmp, _guard) = unique_skills_dir().await;
-        let tmp = std::env::temp_dir().join(format!("anvil_skill_empty_{}_{}", COUNTER.fetch_add(1, Ordering::Relaxed), std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "anvil_skill_empty_{}_{}",
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+            std::process::id()
+        ));
         std::env::set_var("ANVIL_SKILLS_DIR", &tmp);
         let out = ListSkillsTool.call(json!({})).await;
-        assert!(!out.is_error); assert_eq!(out.content.trim(), "[]");
+        assert!(!out.is_error);
+        assert_eq!(out.content.trim(), "[]");
     }
     #[tokio::test]
     async fn list_skills_includes_saved_skills() {
         let (_tmp, _guard) = unique_skills_dir().await;
-        SaveSkillTool.call(json!({"name":"skill-a","description":"alpha","content":"a"})).await;
-        SaveSkillTool.call(json!({"name":"skill-b","description":"beta","content":"b"})).await;
+        SaveSkillTool
+            .call(json!({"name":"skill-a","description":"alpha","content":"a"}))
+            .await;
+        SaveSkillTool
+            .call(json!({"name":"skill-b","description":"beta","content":"b"}))
+            .await;
         let out = ListSkillsTool.call(json!({})).await;
         assert!(!out.is_error);
         let arr: Vec<serde_json::Value> = serde_json::from_str(&out.content).unwrap();
@@ -675,21 +739,31 @@ mod skill_tests {
     #[tokio::test]
     async fn refine_skill_appends_notes() {
         let (_tmp, _guard) = unique_skills_dir().await;
-        SaveSkillTool.call(json!({"name":"ref","description":"r","content":"body"})).await;
-        let out = RefineSkillTool.call(json!({"name":"ref","feedback":"Add more examples."})).await;
+        SaveSkillTool
+            .call(json!({"name":"ref","description":"r","content":"body"}))
+            .await;
+        let out = RefineSkillTool
+            .call(json!({"name":"ref","feedback":"Add more examples."}))
+            .await;
         assert!(!out.is_error);
-        assert!(out.content.contains("Refinement Notes") && out.content.contains("Add more examples."));
+        assert!(
+            out.content.contains("Refinement Notes") && out.content.contains("Add more examples.")
+        );
     }
     #[tokio::test]
     async fn refine_skill_missing_returns_error() {
         let (_tmp, _guard) = unique_skills_dir().await;
-        let out = RefineSkillTool.call(json!({"name":"ghost","feedback":"improve"})).await;
+        let out = RefineSkillTool
+            .call(json!({"name":"ghost","feedback":"improve"}))
+            .await;
         assert!(out.is_error);
     }
     #[tokio::test]
     async fn refine_skill_missing_feedback_is_error() {
         let (_tmp, _guard) = unique_skills_dir().await;
-        SaveSkillTool.call(json!({"name":"nofb","description":"x","content":"y"})).await;
+        SaveSkillTool
+            .call(json!({"name":"nofb","description":"x","content":"y"}))
+            .await;
         let out = RefineSkillTool.call(json!({"name":"nofb"})).await;
         assert!(out.is_error);
     }
