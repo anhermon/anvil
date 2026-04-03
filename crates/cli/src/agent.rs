@@ -7,13 +7,15 @@ use harness_core::{
     session::{Session, SessionStatus},
 };
 use harness_memory::MemoryDb;
-use harness_tools::{ToolRegistry, builtin::EchoTool};
+use harness_tools::{builtin::EchoTool, ToolRegistry};
 use tracing::{debug, info};
 
 /// Drives one agent session: send system prompt + goal, loop until done.
 pub struct Agent {
     provider: Arc<dyn Provider>,
     memory: Arc<MemoryDb>,
+    // Phase 3: tools will be used in the tool-call loop
+    #[allow(dead_code)]
     tools: ToolRegistry,
     config: Config,
 }
@@ -22,7 +24,12 @@ impl Agent {
     pub fn new(provider: Arc<dyn Provider>, memory: Arc<MemoryDb>, config: Config) -> Self {
         let tools = ToolRegistry::new();
         tools.register(EchoTool);
-        Self { provider, memory, tools, config }
+        Self {
+            provider,
+            memory,
+            tools,
+            config,
+        }
     }
 
     /// Run until the agent signals completion or max iterations reached.
@@ -49,6 +56,8 @@ impl Agent {
             self.config.agent.max_iterations
         };
 
+        // Phase 3 will extend this into a real multi-turn loop; for now it is single-turn.
+        #[allow(clippy::never_loop)]
         loop {
             if session.iteration >= max_iter {
                 info!("max iterations reached");
@@ -60,7 +69,11 @@ impl Agent {
             let response = self.provider.complete(&messages).await?;
 
             let text = response.message.text().unwrap_or("").to_string();
-            info!(tokens_out = response.usage.output_tokens, "← {}", &text[..text.len().min(120)]);
+            info!(
+                tokens_out = response.usage.output_tokens,
+                "← {}",
+                &text[..text.len().min(120)]
+            );
 
             // Record in session
             session.push(response.message.clone());

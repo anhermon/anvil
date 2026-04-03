@@ -65,7 +65,9 @@ struct ApiResponse {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ApiContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -113,10 +115,14 @@ impl Provider for ClaudeProvider {
                     };
                     let content = match &msg.content {
                         MessageContent::Text(t) => serde_json::Value::String(t.clone()),
-                        MessageContent::Blocks(blocks) => serde_json::to_value(blocks)
-                            .map_err(HarnessError::Serialization)?,
+                        MessageContent::Blocks(blocks) => {
+                            serde_json::to_value(blocks).map_err(HarnessError::Serialization)?
+                        }
                     };
-                    api_messages.push(ApiMessage { role: role.to_string(), content });
+                    api_messages.push(ApiMessage {
+                        role: role.to_string(),
+                        content,
+                    });
                 }
             }
         }
@@ -148,7 +154,10 @@ impl Provider for ClaudeProvider {
                 .map(|e| e.error.message)
                 .unwrap_or(raw);
             warn!(status = %status, error = %msg, "Anthropic API error");
-            return Err(HarnessError::Api { status: status.as_u16(), body: msg });
+            return Err(HarnessError::Api {
+                status: status.as_u16(),
+                body: msg,
+            });
         }
 
         let api_resp: ApiResponse = resp
@@ -159,7 +168,13 @@ impl Provider for ClaudeProvider {
         let text = api_resp
             .content
             .iter()
-            .filter_map(|c| if let ApiContent::Text { text } = c { Some(text.as_str()) } else { None })
+            .filter_map(|c| {
+                if let ApiContent::Text { text } = c {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>()
             .join("");
 

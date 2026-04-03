@@ -2,7 +2,7 @@ mod agent;
 mod commands;
 
 use clap::{Parser, Subcommand};
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{fmt, EnvFilter};
 
 /// paperclip-harness — provider-agnostic Rust agent harness.
 #[derive(Parser)]
