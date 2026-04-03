@@ -3,7 +3,11 @@ use std::sync::Arc;
 
 use clap::Args;
 use futures::StreamExt;
-use harness_core::{config::Config, provider::Provider, providers::ClaudeProvider};
+use harness_core::{
+    config::Config,
+    provider::Provider,
+    providers::{ClaudeCodeProvider, ClaudeProvider},
+};
 use harness_memory::MemoryDb;
 
 use crate::agent::Agent;
@@ -14,7 +18,7 @@ pub struct RunArgs {
     #[arg(short, long)]
     pub goal: String,
 
-    /// Provider backend override (claude, echo)
+    /// Provider backend override (claude, claude-code, cc, echo)
     #[arg(long, env = "HARNESS_PROVIDER")]
     pub provider: Option<String>,
 
@@ -36,6 +40,12 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
         }
+        "claude-code" | "cc" => {
+            // The --provider flag selects the backend; model comes from config.
+            let model = &config.provider.model;
+            tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
+            Arc::new(ClaudeCodeProvider::new(model))
+        }
         _ => Arc::new(
             ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
                 .map_err(|e| anyhow::anyhow!("{}", e))?,
@@ -46,15 +56,14 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
     if args.stream {
         // Streaming mode: print tokens as they arrive, then persist to memory.
-        let msgs =
-            vec![
-                harness_core::message::Message::system(
-                    config.agent.system_prompt.as_deref().unwrap_or(
-                        "You are a helpful assistant. Complete the user's goal concisely.",
-                    ),
+        let msgs = vec![
+            harness_core::message::Message::system(
+                config.agent.system_prompt.as_deref().unwrap_or(
+                    "You are a helpful assistant. Complete the user's goal concisely.",
                 ),
-                harness_core::message::Message::user(&args.goal),
-            ];
+            ),
+            harness_core::message::Message::user(&args.goal),
+        ];
 
         println!("\n{}", "─".repeat(60));
         let mut token_stream = provider.stream(&msgs).await?;
