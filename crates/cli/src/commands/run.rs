@@ -12,7 +12,7 @@ use harness_core::{
 use harness_memory::MemoryDb;
 use indicatif::ProgressBar;
 
-use crate::agent::{Agent, UiHook};
+use crate::agent::{Agent, RunOptions, UiHook};
 use crate::ui;
 
 #[derive(Args)]
@@ -28,6 +28,17 @@ pub struct RunArgs {
     /// Stream response tokens to stdout as they arrive
     #[arg(long)]
     pub stream: bool,
+
+    /// Named session for continuity. Load prior history from this session
+    /// and save new episodes under this name.
+    /// Example: anvil run --goal "continue the work" --session myproject
+    #[arg(long)]
+    pub session: Option<String>,
+
+    /// Override the maximum number of agent iterations (default: 10).
+    /// Set to 0 for unlimited.
+    #[arg(long, default_value_t = 10)]
+    pub max_iterations: usize,
 }
 
 /// CLI UI hook: drives the spinner and prints tool call/result lines.
@@ -44,8 +55,13 @@ impl CliHook {
 }
 
 impl UiHook for CliHook {
-    fn on_thinking(&self) {
-        let pb = ui::thinking_spinner("thinking…");
+    fn on_thinking(&self, iteration: usize, max_iter: usize) {
+        let label = if max_iter == usize::MAX {
+            format!("thinking... [{iteration}]")
+        } else {
+            format!("thinking... [{iteration}/{max_iter}]")
+        };
+        let pb = ui::thinking_spinner(&label);
         let mut guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
         *guard = Some(pb);
     }
@@ -126,7 +142,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         ui::print_banner();
         ui::print_session_header("stream", &config.provider.model, &backend);
 
-        println!("\n{}", "─".repeat(60));
+        println!("\n{}", "-".repeat(60));
         let mut token_stream = provider.stream(&msgs).await?;
         let mut full_text = String::new();
         let stdout = std::io::stdout();
@@ -145,11 +161,12 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         }
 
         writeln!(out)?;
-        println!("{}", "─".repeat(60));
+        println!("{}", "-".repeat(60));
 
         // Persist the streamed response to memory.
         let ep = harness_memory::Episode::turn(uuid::Uuid::new_v4(), "assistant", &full_text);
-        memory.insert(&ep).await?;
+        let sn = args.session.as_deref();
+        memory.insert_named(&ep, sn).await?;
 
         println!("Streaming complete.");
     } else {
@@ -160,21 +177,32 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         ui::print_banner();
         ui::print_session_header("pending", &config.provider.model, &backend);
 
+        // Inform user about active session name.
+        if let Some(ref sname) = args.session {
+            eprintln!("  session name: {}\n", sname);
+        }
+
+        let opts = RunOptions {
+            session_name: args.session.clone(),
+            max_iterations: if args.max_iterations == 0 {
+                Some(usize::MAX)
+            } else {
+                Some(args.max_iterations)
+            },
+        };
+
         let t0 = Instant::now();
-        let session = agent.run(&args.goal).await?;
+        let session = agent.run_with_options(&args.goal, opts).await?;
         let elapsed_ms = t0.elapsed().as_millis() as u64;
 
-        // Collect token totals from session messages (best-effort; usage not
-        // stored per-message, so we report iteration count only here).
         if let Some(msg) = session.messages.last() {
             ui::print_response(msg.text().unwrap_or("(no response)"));
         }
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
         eprintln!(
-            "  {}  session {} | status {:?}",
-            console::style("◆").dim(),
-            console::style(&session.id.to_string()[..8]).dim(),
+            "  session {} | status {:?}",
+            &session.id.to_string()[..8],
             session.status,
         );
     }
