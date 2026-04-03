@@ -7,7 +7,7 @@ use harness_core::{
     session::{Session, SessionStatus},
 };
 use harness_memory::MemoryDb;
-use harness_tools::{ToolRegistry, builtin::EchoTool};
+use harness_tools::{builtin::EchoTool, ToolRegistry};
 use tracing::{debug, info, warn};
 
 /// Drives one agent session: send system prompt + goal, loop until done.
@@ -22,7 +22,12 @@ impl Agent {
     pub fn new(provider: Arc<dyn Provider>, memory: Arc<MemoryDb>, config: Config) -> Self {
         let tools = ToolRegistry::new();
         tools.register(EchoTool);
-        Self { provider, memory, tools, config }
+        Self {
+            provider,
+            memory,
+            tools,
+            config,
+        }
     }
 
     /// Run until the agent signals completion or max iterations reached.
@@ -62,7 +67,10 @@ impl Agent {
             session.iteration += 1;
             debug!(iteration = session.iteration, "agent turn");
 
-            let response = self.provider.complete_with_tools(&messages, &tool_defs).await?;
+            let response = self
+                .provider
+                .complete_with_tools(&messages, &tool_defs)
+                .await?;
 
             let preview = response.message.text().unwrap_or("").to_string();
             info!(
@@ -91,24 +99,26 @@ impl Agent {
 
                 StopReason::ToolUse => {
                     // Extract every ToolUse block from the assistant response.
-                    let tool_calls: Vec<(String, String, serde_json::Value)> =
-                        match &response.message.content {
-                            MessageContent::Blocks(blocks) => blocks
-                                .iter()
-                                .filter_map(|b| {
-                                    if let ContentBlock::ToolUse { id, name, input } = b {
-                                        Some((id.clone(), name.clone(), input.clone()))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect(),
-                            _ => {
-                                warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
-                                session.finish(SessionStatus::Done);
-                                break;
-                            }
-                        };
+                    let tool_calls: Vec<(String, String, serde_json::Value)> = match &response
+                        .message
+                        .content
+                    {
+                        MessageContent::Blocks(blocks) => blocks
+                            .iter()
+                            .filter_map(|b| {
+                                if let ContentBlock::ToolUse { id, name, input } = b {
+                                    Some((id.clone(), name.clone(), input.clone()))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                        _ => {
+                            warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
+                            session.finish(SessionStatus::Done);
+                            break;
+                        }
+                    };
 
                     // Execute each tool and collect result blocks.
                     let mut result_blocks: Vec<ContentBlock> = Vec::new();
@@ -160,7 +170,9 @@ mod tests {
             // Reverse so we can pop from the back in FIFO order.
             let mut r = responses;
             r.reverse();
-            Self { responses: Mutex::new(r) }
+            Self {
+                responses: Mutex::new(r),
+            }
         }
     }
 
@@ -191,17 +203,19 @@ mod tests {
     }
 
     /// Helpers for building TurnResponse values.
-    fn tool_use_response(tool_use_id: &str, tool_name: &str, input: serde_json::Value) -> TurnResponse {
+    fn tool_use_response(
+        tool_use_id: &str,
+        tool_name: &str,
+        input: serde_json::Value,
+    ) -> TurnResponse {
         TurnResponse {
             message: Message {
                 role: Role::Assistant,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolUse {
-                        id: tool_use_id.to_string(),
-                        name: tool_name.to_string(),
-                        input,
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
+                    id: tool_use_id.to_string(),
+                    name: tool_name.to_string(),
+                    input,
+                }]),
             },
             stop_reason: StopReason::ToolUse,
             usage: Usage::default(),
@@ -255,7 +269,13 @@ mod tests {
     async fn max_iterations_cap_is_respected() {
         // Provider always asks for a tool call; cap at 2 iterations.
         let responses: Vec<TurnResponse> = (0..10)
-            .map(|i| tool_use_response(&format!("c-{i}"), "echo", serde_json::json!({"message": "x"})))
+            .map(|i| {
+                tool_use_response(
+                    &format!("c-{i}"),
+                    "echo",
+                    serde_json::json!({"message": "x"}),
+                )
+            })
             .collect();
 
         let provider = Arc::new(ScriptedProvider::new(responses));

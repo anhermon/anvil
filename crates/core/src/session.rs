@@ -1,7 +1,7 @@
+use crate::message::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::message::Message;
 
 /// A single agent run session.
 #[derive(Debug, Clone, Serialize, Deserialize)]

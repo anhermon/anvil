@@ -20,7 +20,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -41,3 +41,6 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --check --all

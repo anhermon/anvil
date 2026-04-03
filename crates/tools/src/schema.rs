@@ -61,7 +61,9 @@ mod tests {
     #[test]
     fn validates_required_fields() {
         let schema = ToolSchema::simple("bash", "Run a shell command", &["command"]);
-        assert!(schema.validate(&serde_json::json!({"command": "ls"})).is_ok());
+        assert!(schema
+            .validate(&serde_json::json!({"command": "ls"}))
+            .is_ok());
         assert!(schema.validate(&serde_json::json!({})).is_err());
     }
 }
