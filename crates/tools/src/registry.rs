@@ -1,8 +1,8 @@
+use crate::schema::ToolSchema;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;
-use crate::schema::ToolSchema;
 
 /// Result of executing a tool.
 #[derive(Debug, Clone)]
@@ -13,11 +13,17 @@ pub struct ToolOutput {
 
 impl ToolOutput {
     pub fn ok(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: false }
+        Self {
+            content: content.into(),
+            is_error: false,
+        }
     }
 
     pub fn err(msg: impl Into<String>) -> Self {
-        Self { content: msg.into(), is_error: true }
+        Self {
+            content: msg.into(),
+            is_error: true,
+        }
     }
 }
 
@@ -95,7 +101,9 @@ mod tests {
     async fn registry_dispatches_tool() {
         let registry = ToolRegistry::new();
         registry.register(UpperCase);
-        let out = registry.call("uppercase", serde_json::json!({"text": "hello"})).await;
+        let out = registry
+            .call("uppercase", serde_json::json!({"text": "hello"}))
+            .await;
         assert_eq!(out.content, "HELLO");
         assert!(!out.is_error);
     }

@@ -29,22 +29,40 @@ pub enum MessageContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
-    ToolResult { tool_use_id: String, content: String },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
 }
 
 impl Message {
     pub fn system(text: impl Into<String>) -> Self {
-        Self { role: Role::System, content: MessageContent::Text(text.into()) }
+        Self {
+            role: Role::System,
+            content: MessageContent::Text(text.into()),
+        }
     }
 
     pub fn user(text: impl Into<String>) -> Self {
-        Self { role: Role::User, content: MessageContent::Text(text.into()) }
+        Self {
+            role: Role::User,
+            content: MessageContent::Text(text.into()),
+        }
     }
 
     pub fn assistant(text: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: MessageContent::Text(text.into()) }
+        Self {
+            role: Role::Assistant,
+            content: MessageContent::Text(text.into()),
+        }
     }
 
     /// Extract plain text from any content variant.
@@ -52,7 +70,11 @@ impl Message {
         match &self.content {
             MessageContent::Text(s) => Some(s.as_str()),
             MessageContent::Blocks(blocks) => blocks.iter().find_map(|b| {
-                if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
+                if let ContentBlock::Text { text } = b {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
             }),
         }
     }

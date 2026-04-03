@@ -54,7 +54,10 @@ impl Default for Config {
                 api_key: None,
                 base_url: None,
             },
-            memory: MemoryConfig { db_path, max_context_episodes: 20 },
+            memory: MemoryConfig {
+                db_path,
+                max_context_episodes: 20,
+            },
             agent: AgentConfig {
                 name: "harness".to_string(),
                 system_prompt: None,
@@ -78,13 +81,14 @@ impl Config {
 
     /// Resolve API key: config file → environment variable.
     pub fn resolved_api_key(&self) -> Option<String> {
-        self.provider.api_key.clone().or_else(|| {
-            match self.provider.backend.as_str() {
+        self.provider
+            .api_key
+            .clone()
+            .or_else(|| match self.provider.backend.as_str() {
                 "claude" => std::env::var("ANTHROPIC_API_KEY").ok(),
                 "openai" => std::env::var("OPENAI_API_KEY").ok(),
                 _ => None,
-            }
-        })
+            })
     }
 }
 
