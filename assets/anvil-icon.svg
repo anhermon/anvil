@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Anvil icon">
+  <!-- Anvil silhouette: horn (left), face (top), body (base) -->
+  <path
+    d="M3,19 L16,8 L58,8 L58,30 L60,30 L60,56 L4,56 L4,30 L16,30 Z"
+    fill="#2D3748"
+  />
+  <!-- Face highlight (top edge of working surface) -->
+  <rect x="16" y="8" width="42" height="3" rx="1" fill="#718096"/>
+  <!-- Body step highlight -->
+  <rect x="4" y="30" width="56" height="3" rx="1" fill="#718096" opacity="0.4"/>
+</svg>
