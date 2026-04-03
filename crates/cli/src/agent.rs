@@ -9,7 +9,10 @@ use harness_core::{
 };
 use harness_memory::MemoryDb;
 use harness_tools::{
-    builtin::{BashExecTool, EchoTool, ReadFileTool, SpawnSubagentTool, WriteFileTool},
+    builtin::{
+        BashExecTool, EchoTool, ListSkillsTool, ReadFileTool, ReadSkillTool, RefineSkillTool,
+        SaveSkillTool, SpawnSubagentTool, WriteFileTool,
+    },
     ToolRegistry,
 };
 use tracing::{debug, info, warn};
@@ -75,6 +78,10 @@ impl Agent {
         tools.register(SpawnSubagentTool);
         tools.register(BashExecTool);
         tools.register(WriteFileTool);
+        tools.register(ListSkillsTool);
+        tools.register(ReadSkillTool);
+        tools.register(SaveSkillTool);
+        tools.register(RefineSkillTool);
         Self {
             provider,
             memory,
@@ -104,13 +111,23 @@ impl Agent {
         // Build initial messages
         let mut messages: Vec<Message> = Vec::new();
 
-        if let Some(sys) = &self.config.agent.system_prompt {
-            messages.push(Message::system(sys));
-        } else {
-            messages.push(Message::system(
-                "You are a helpful assistant. Complete the user's goal concisely.",
-            ));
-        }
+        let base_system = self
+            .config
+            .agent
+            .system_prompt
+            .as_deref()
+            .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.")
+            .to_string();
+        let system_prompt = format!(
+            "{base_system}\n\nYou have access to a skill library. Skills are reusable patterns \
+            you can read, create, and refine.\n\
+            - list_skills: see what you know\n\
+            - read_skill: load a skill for guidance\n\
+            - save_skill: create a new skill from learned patterns\n\
+            - refine_skill: improve an existing skill with feedback\n\n\
+            After completing a task, consider whether to save a new skill or refine an existing one."
+        );
+        messages.push(Message::system(&system_prompt));
 
         messages.push(Message::user(goal));
 

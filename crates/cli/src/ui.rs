@@ -1,125 +1,168 @@
-//! Terminal UI helpers: spinner, colored tool call display, session header and summary.
+//! Terminal UI helpers: banner, spinner, tool call display, session header/summary.
 //!
 //! Style reference: claude-code / hermes-agent terminal output.
+//!
+//! Color palette:
+//!   brand   — cyan  (`style(...).cyan()`)
+//!   meta    — dim gray (`style(...).dim()`)
+//!   success — green
+//!   warning — yellow
+//!   tool    — cyan bold
 
-use console::style;
+use console::{style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const ASCII_BANNER: &str = include_str!("assets/anvil.txt");
 
-/// Print the startup banner with ASCII art when stderr is a TTY.
+// ─────────────────────────────────────────────────────────────────────────────────
+// Banner
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Print the startup banner.
 ///
-/// When connected to a terminal prints the full ASCII art anvil logo followed
-/// by the "anvil vX.Y.Z" byline.  When piped / redirected, prints a compact
-/// single-line header so logs stay parseable.
+/// In a TTY: dimmed cyan block-art logo, bold name, italic tagline.
+/// When piped/redirected: compact one-liner so logs stay parseable.
 pub fn print_banner() {
-    if console::Term::stderr().is_term() {
-        // Print each line of the ASCII art dimmed so it doesn't overpower output.
+    if Term::stderr().is_term() {
+        eprintln!();
         for line in ASCII_BANNER.lines() {
-            eprintln!("  {}", style(line).dim());
+            eprintln!("  {}", style(line).cyan().dim());
         }
+        eprintln!();
         eprintln!(
-            "        {} {}  v{VERSION}\n",
-            style("anvil").bold(),
-            style("—").dim(),
+            "  {}  {}",
+            style("anvil").bold().cyan(),
+            style(format!("v{VERSION}")).dim(),
         );
-        eprintln!("  {}", style("─".repeat(41)).dim());
+        eprintln!("  {}", style("forge your agents").dim().italic());
+        eprintln!();
     } else {
         eprintln!(
-            "\n  {} {}  v{VERSION}",
+            "  {} {}  v{VERSION}",
             style("▲").cyan().bold(),
             style("anvil").bold(),
         );
-        eprintln!("  {}", style("─".repeat(41)).dim());
     }
 }
 
-/// Print the session header with session ID, model and provider.
+// ─────────────────────────────────────────────────────────────────────────────────
+// Session header
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Print the compact session header.
 ///
 /// ```text
-///   ◆ session: abc12345  model: claude-3-haiku  provider: claude
+///   ◆ session:abc12345  claude-3-haiku  via:claude
+///   ──────────────────────────────────────────────────
 /// ```
 pub fn print_session_header(session_id: &str, model: &str, provider: &str) {
     let short_id = &session_id[..session_id.len().min(8)];
     eprintln!(
-        "  {}  session: {}  model: {}  provider: {}",
+        "  {}  {}  {}  {}",
         style("◆").cyan(),
-        style(short_id).dim(),
+        style(format!("session:{short_id}")).dim(),
         style(model).dim(),
-        style(provider).dim(),
+        style(format!("via:{provider}")).dim(),
     );
-    eprintln!("  {}\n", style("─".repeat(41)).dim());
+    eprintln!("  {}", style("─".repeat(50)).dim());
+    eprintln!();
 }
 
-/// Create and start a braille-dot spinner for "thinking…" while waiting for the API.
+// ─────────────────────────────────────────────────────────────────────────────────
+// Spinner
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Create and start a braille-dot spinner.
 ///
-/// Call `.finish_and_clear()` on the returned bar once the response arrives.
+/// ```text
+///   ⠋  thinking [2/5]
+/// ```
+///
+/// Pass a pre-formatted label (e.g. `"thinking [1/5]"`).
+/// Call `.finish_and_clear()` on the returned `ProgressBar` when done.
 pub fn thinking_spinner(msg: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-            .template("{spinner:.cyan.dim} {msg:.dim}")
+            .template("{spinner:.cyan} {msg}")
             .unwrap_or_else(|_| ProgressStyle::default_spinner()),
     );
-    pb.set_message(msg.to_string());
+    pb.set_message(format!("{}", style(msg).dim()));
     pb.enable_steady_tick(Duration::from_millis(80));
     pb
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────
+// Tool call / result
+// ─────────────────────────────────────────────────────────────────────────────────
+
 /// Print a tool call line.
 ///
 /// ```text
-///   ⯾  read_file  path/to/file.rs
+///   ⎿  read_file  "path/to/file.rs"
 /// ```
 pub fn print_tool_call(name: &str, input_preview: &str) {
     eprintln!(
         "  {}  {}  {}",
         style("⎿").cyan().dim(),
-        style(name).cyan(),
+        style(name).cyan().bold(),
         style(input_preview).dim(),
     );
 }
 
-/// Print a tool result, truncated to 120 chars.
+/// Print a tool result, truncated to 200 chars with newlines collapsed.
 pub fn print_tool_result(output: &str) {
-    let truncated = output.len() > 120;
-    let preview: String = output
-        .chars()
-        .take(120)
-        .collect::<String>()
-        .replace('\n', " ↵ ");
-    if truncated {
-        eprintln!(
-            "       {}  {}",
-            style(preview).dim(),
-            style("[truncated]").dim()
-        );
-    } else {
-        eprintln!("       {}", style(preview).dim());
+    let preview: String = output.chars().take(200).collect();
+    let preview = preview.replace('\n', " ↵ ");
+    eprintln!("    {}", style(&preview).dim());
+    if output.len() > 200 {
+        eprintln!("    {}", style(format!("… ({} chars)", output.len())).dim());
     }
 }
 
-/// Print the final assistant response.
+// ─────────────────────────────────────────────────────────────────────────────────
+// Response
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Print the final assistant response with consistent left padding.
 pub fn print_response(text: &str) {
-    println!("\n{}", text);
+    eprintln!();
+    for line in text.lines() {
+        eprintln!("  {line}");
+    }
+    eprintln!();
 }
 
-/// Print the session summary line.
+// ─────────────────────────────────────────────────────────────────────────────────
+// Session summary
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Print the closing session summary footer.
 ///
 /// ```text
-///   tokens: 312 in / 78 out  |  3 iterations  |  1.4s
+///   ╰─  3 iterations  ·  1.4s
 /// ```
+///
+/// `tokens_in` and `tokens_out` are best-effort; pass 0 when unavailable.
 pub fn print_session_summary(tokens_in: u32, tokens_out: u32, iterations: usize, elapsed_ms: u64) {
     let secs = elapsed_ms as f64 / 1000.0;
+    let token_str = if tokens_in > 0 || tokens_out > 0 {
+        format!("tokens {tokens_in}/{tokens_out}  ·  ")
+    } else {
+        String::new()
+    };
     eprintln!(
-        "\n  {}",
+        "  {}  {}{}  ·  {:.1}s",
+        style("╰─").dim(),
+        style(&token_str).dim(),
         style(format!(
-            "tokens: {tokens_in} in / {tokens_out} out  |  {iterations} iteration{}  |  {secs:.1}s",
+            "{iterations} iteration{}",
             if iterations == 1 { "" } else { "s" }
         ))
-        .dim()
+        .dim(),
+        secs,
     );
 }

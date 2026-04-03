@@ -1,31 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" fill="none">
   <!--
-    Anvil — provider-agnostic Rust AI agent runtime
-    Monochrome silhouette, works on dark and light backgrounds via currentColor.
-    Shape: classic blacksmith's anvil, side-view.
-      - Top face: flat work surface
-      - Horn: left-pointing taper
-      - Table: wide platform below the top face
-      - Waist: tapered body
-      - Feet: two rectangular feet at the base
+    anvil — provider-agnostic Rust AI agent runtime
+    Clean geometric blacksmith's anvil silhouette, side view.
+    Deep navy fill (#1a1a2e). Compound path: horn + face + body + waist + feet.
   -->
 
-  <!-- Feet — left and right, rectangular with rounded corners -->
-  <rect x="18" y="83" width="25" height="8" rx="2" fill="currentColor"/>
-  <rect x="57" y="83" width="25" height="8" rx="2" fill="currentColor"/>
+  <!-- Left foot -->
+  <rect x="12" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
 
-  <!-- Waist — trapezoid connecting table bottom edge to the feet -->
-  <path d="M28 73 L72 73 L65 83 L35 83 Z" fill="currentColor"/>
+  <!-- Right foot -->
+  <rect x="78" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
 
-  <!-- Table body — hexagonal platform (tapers from table face to waist) -->
-  <path d="M20 57 L80 57 L80 65 L72 73 L28 73 L20 65 Z" fill="currentColor"/>
+  <!-- Waist — trapezoid connecting body to feet -->
+  <path d="M24 56 L96 56 L88 66 L32 66 Z" fill="#1a1a2e"/>
 
-  <!-- Hardy hole — small rectangular tool hole cut into the table (top-right area) -->
-  <rect x="65" y="58.5" width="8" height="6" rx="1" fill="white"/>
+  <!-- Body — main table platform -->
+  <path d="M14 40 L106 40 L106 48 L96 56 L24 56 L14 48 Z" fill="#1a1a2e"/>
 
-  <!-- Horn — left-pointing triangular projection off the table -->
-  <path d="M20 57 L20 65 L5 62 Z" fill="currentColor"/>
+  <!-- Hardy hole — square punch-through in table surface -->
+  <rect x="89" y="41" width="9" height="8" rx="1" fill="#f4f4f8"/>
 
-  <!-- Top face — flat work surface, slightly wider than the table body -->
-  <rect x="19" y="53" width="62" height="4.5" rx="1.5" fill="currentColor"/>
+  <!-- Horn — tapered left projection -->
+  <path d="M14 40 L14 48 L1 45 Z" fill="#1a1a2e"/>
+
+  <!-- Work face — flat top surface -->
+  <rect x="13" y="35" width="94" height="5" rx="1.5" fill="#1a1a2e"/>
 </svg>
