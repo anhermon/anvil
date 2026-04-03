@@ -1,3 +1,4 @@
+use harness_core::provider::ToolDef;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,6 +27,15 @@ impl ToolSchema {
                 "properties": properties,
                 "required": required_strings,
             }),
+        }
+    }
+
+    /// Convert to a `ToolDef` for passing to provider methods.
+    pub fn to_def(&self) -> ToolDef {
+        ToolDef {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            input_schema: self.input_schema.clone(),
         }
     }
 

@@ -1,7 +1,17 @@
 use async_trait::async_trait;
 use std::pin::Pin;
 use futures::Stream;
+use serde::{Deserialize, Serialize};
 use crate::{error::Result, message::{Message, TurnResponse}};
+
+/// Lightweight tool definition passed to providers alongside messages.
+/// Mirrors the JSON schema shape expected by Claude / OpenAI tool-calling APIs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDef {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
 
 /// A streaming token chunk from the provider.
 #[derive(Debug, Clone)]
@@ -22,6 +32,16 @@ pub trait Provider: Send + Sync + 'static {
 
     /// Single non-streaming turn: send messages, get back a complete response.
     async fn complete(&self, messages: &[Message]) -> Result<TurnResponse>;
+
+    /// Turn with tool definitions made available to the LLM.
+    /// Defaults to `complete` (tools ignored) for providers that don't support them yet.
+    async fn complete_with_tools(
+        &self,
+        messages: &[Message],
+        _tools: &[ToolDef],
+    ) -> Result<TurnResponse> {
+        self.complete(messages).await
+    }
 
     /// Streaming turn: yields token chunks as they arrive.
     /// Default falls back to `complete` and emits one chunk.

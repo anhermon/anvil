@@ -20,3 +20,24 @@ impl ToolHandler for EchoTool {
         ToolOutput::ok(msg)
     }
 }
+
+/// Read the UTF-8 contents of a file at a given path.
+pub struct ReadFileTool;
+
+#[async_trait]
+impl ToolHandler for ReadFileTool {
+    fn schema(&self) -> ToolSchema {
+        ToolSchema::simple("read_file", "Read the UTF-8 contents of a file", &["path"])
+    }
+
+    async fn call(&self, input: Value) -> ToolOutput {
+        let path = match input["path"].as_str() {
+            Some(p) => p.to_string(),
+            None => return ToolOutput::err("missing required field: path"),
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => ToolOutput::ok(contents),
+            Err(e) => ToolOutput::err(format!("read_file failed for {path}: {e}")),
+        }
+    }
+}
