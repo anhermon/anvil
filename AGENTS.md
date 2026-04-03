@@ -16,7 +16,7 @@ framework. It is an opinionated runtime that:
 4. Stays under a configurable iteration budget (safety bound).
 5. Exposes hooks for human oversight via a Paperclip-compatible control plane (planned Phase 6).
 
-The binary is `harness`. Configuration lives at `~/.paperclip/harness/config.toml`.
+The binary is `anvil`. Configuration lives at `~/.paperclip/harness/config.toml`.
 
 ---
 
@@ -207,4 +207,4 @@ The harness resolves Anthropic credentials in this priority order:
 3. **Error** — if neither source yields a non-empty credential, the harness exits with a helpful
    message pointing to both options.
 
-Use `harness auth status` to inspect which method is active in the current environment.
+Use `anvil auth status` to inspect which method is active in the current environment.

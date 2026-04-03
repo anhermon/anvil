@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "harness"
+name = "anvil"
 path = "src/main.rs"
 
 [dependencies]
@@ -24,6 +24,8 @@ toml = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+indicatif = "0.17"
+console = "0.15"
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -66,7 +66,7 @@ crates/
 ├── core/      Provider trait, message types, config, session, turn loop
 ├── tools/     Tool registry, serde_json schema validation, built-in tools
 ├── memory/    SQLite episodic memory (sqlx + FTS5), semantic recall (sqlite-vec)
-├── cli/       clap derive CLI: harness run / config / memory / eval
+├── cli/       clap derive CLI: anvil run / config / memory / eval
 ├── task/      (planned) Task DAG, planning step, checkpointing
 ├── orchestrator/ (planned) Sub-agent spawn/manage via tokio RPC
 └── ui/        (planned) ratatui TUI + WebSocket control plane
@@ -81,8 +81,8 @@ crates/
 cargo install --path crates/cli
 
 # Then run from anywhere:
-harness --help
-harness run --goal "your goal here"
+anvil --help
+anvil run --goal "your goal here"
 ```
 
 Set `ANTHROPIC_API_KEY` or use an existing Claude Code session (see Auth below).
@@ -91,16 +91,16 @@ Set `ANTHROPIC_API_KEY` or use an existing Claude Code session (see Auth below).
 
 ```bash
 # Run an agent session with a goal
-harness run --goal "Summarise the current directory"
+anvil run --goal "Summarise the current directory"
 
 # Run with the echo provider -- no API key, great for testing
-harness run --provider echo --goal "hello"
+anvil run --provider echo --goal "hello"
 
 # Check your config
-harness config --check
+anvil config --check
 
 # Search episodic memory
-harness memory search "recent goals"
+anvil memory search "recent goals"
 ```
 
 ## Quick Start
@@ -144,9 +144,9 @@ Adding a provider means implementing one async trait in `crates/core/src/provide
 Episodes are stored in `~/.paperclip/harness/memory.db` (SQLite + FTS5).
 
 ```bash
-harness memory search "rust async"    # full-text search
-harness memory list --limit 20        # recent episodes
-harness memory purge --before 30d     # clean up old entries
+anvil memory search "rust async"    # full-text search
+anvil memory list --limit 20        # recent episodes
+anvil memory purge --before 30d     # clean up old entries
 ```
 
 Semantic recall via `sqlite-vec` is planned for Phase 3.
@@ -159,7 +159,7 @@ Semantic recall via `sqlite-vec` is planned for Phase 3.
 |-------|-------------|-------|
 | 1     | ✅ done      | Claude Code fork & architecture study |
 | 2     | ✅ done      | Rust dev skills, Cargo workspace, provider trait, tool registry, SQLite memory, CLI |
-| 3     | 🔄 in progress | Tool call loop, streaming, `harness eval`, task DAG, planning step |
+| 3     | 🔄 in progress | Tool call loop, streaming, `anvil eval`, task DAG, planning step |
 | 4     | planned     | Sub-agent orchestration (tokio RPC, session-type sandbox, worktree isolation) |
 | 5     | planned     | Self-evolution engine (5-gate validate, prompt/skill versioning, rollback) |
 | 6     | planned     | Control plane: WebSocket gateway, ratatui TUI, Paperclip API adapter, open-source release |

@@ -4,9 +4,9 @@ mod commands;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{fmt, EnvFilter};
 
-/// paperclip-harness — provider-agnostic Rust agent harness.
+/// anvil — provider-agnostic Rust agent runtime.
 #[derive(Parser)]
-#[command(name = "harness", version, about, long_about = None)]
+#[command(name = "anvil", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

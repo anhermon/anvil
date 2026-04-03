@@ -59,7 +59,7 @@ impl Default for Config {
                 max_context_episodes: 20,
             },
             agent: AgentConfig {
-                name: "harness".to_string(),
+                name: "anvil".to_string(),
                 system_prompt: None,
                 max_iterations: 50,
             },

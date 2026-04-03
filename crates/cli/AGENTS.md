@@ -1,7 +1,7 @@
 # AGENTS.md — crates/cli
 
-This is the `harness` binary crate. It owns the `Agent` loop, all CLI subcommands, and the
-user-facing harness entry point. Changes here are user-visible and directly affect agent behaviour.
+This is the `anvil` binary crate. It owns the `Agent` loop, all CLI subcommands, and the
+user-facing anvil entry point. Changes here are user-visible and directly affect agent behaviour.
 Read this file carefully before modifying the agent loop or adding a subcommand.
 
 ---
@@ -12,9 +12,9 @@ Read this file carefully before modifying the agent loop or adding a subcommand.
 |------------------------|-------------------------------------------------------------------|
 | `main.rs`              | Clap derive root, tracing setup, async entry point                |
 | `agent.rs`             | `Agent` struct and `Agent::run()` — the core agentic loop         |
-| `commands/run.rs`      | `harness run --goal` — provider selection, session execution      |
-| `commands/config.rs`   | `harness config` — inspect/validate config                        |
-| `commands/memory.rs`   | `harness memory search/list/purge` — memory introspection         |
+| `commands/run.rs`      | `anvil run --goal` — provider selection, session execution      |
+| `commands/config.rs`   | `anvil config` — inspect/validate config                        |
+| `commands/memory.rs`   | `anvil memory search/list/purge` — memory introspection         |
 | `commands/mod.rs`      | Subcommand enum; registers all commands                           |
 
 ---

@@ -1,4 +1,4 @@
-//! `harness auth` subcommand -- show the active authentication method.
+//! `anvil auth` subcommand -- show the active authentication method.
 
 use clap::{Args, Subcommand};
 use harness_core::{auth::AuthMethod, config::Config};
