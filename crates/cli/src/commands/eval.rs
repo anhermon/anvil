@@ -55,7 +55,11 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
         anyhow::bail!("no test cases found in '{}'", args.cases);
     }
 
-    let backend = args.provider.as_deref().unwrap_or(&config.provider.backend).to_string();
+    let backend = args
+        .provider
+        .as_deref()
+        .unwrap_or(&config.provider.backend)
+        .to_string();
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
@@ -75,7 +79,11 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
 
     let memory = Arc::new(MemoryDb::in_memory().await?);
 
-    println!("Running {} eval case(s) with provider '{}'", cases.len(), backend);
+    println!(
+        "Running {} eval case(s) with provider '{}'",
+        cases.len(),
+        backend
+    );
     println!("{}", "─".repeat(60));
 
     let mut passed = 0usize;
@@ -99,8 +107,9 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
             .unwrap_or("")
             .to_string();
 
-        let pass =
-            response.to_lowercase().contains(&case.expected.to_lowercase());
+        let pass = response
+            .to_lowercase()
+            .contains(&case.expected.to_lowercase());
 
         if pass {
             passed += 1;
@@ -109,7 +118,10 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
             failed += 1;
             println!("[FAIL] {}", label);
             println!("       expected to contain: {:?}", case.expected);
-            println!("       got:                 {:?}", &response[..response.len().min(120)]);
+            println!(
+                "       got:                 {:?}",
+                &response[..response.len().min(120)]
+            );
             failures.push((idx + 1, label.clone(), response, case.expected.clone()));
 
             if args.fail_fast {

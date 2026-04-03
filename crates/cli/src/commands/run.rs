@@ -52,16 +52,15 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
     if args.stream {
         // Streaming mode: print tokens as they arrive, then persist to memory.
-        let msgs = vec![
-            harness_core::message::Message::system(
-                config
-                    .agent
-                    .system_prompt
-                    .as_deref()
-                    .unwrap_or("You are a helpful assistant. Complete the user's goal concisely."),
-            ),
-            harness_core::message::Message::user(&args.goal),
-        ];
+        let msgs =
+            vec![
+                harness_core::message::Message::system(
+                    config.agent.system_prompt.as_deref().unwrap_or(
+                        "You are a helpful assistant. Complete the user's goal concisely.",
+                    ),
+                ),
+                harness_core::message::Message::user(&args.goal),
+            ];
 
         println!("\n{}", "─".repeat(60));
         let mut token_stream = provider.stream(&msgs).await?;
@@ -85,8 +84,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         println!("{}", "─".repeat(60));
 
         // Persist the streamed response to memory.
-        let ep =
-            harness_memory::Episode::turn(uuid::Uuid::new_v4(), "assistant", &full_text);
+        let ep = harness_memory::Episode::turn(uuid::Uuid::new_v4(), "assistant", &full_text);
         memory.insert(&ep).await?;
 
         println!("Streaming complete.");

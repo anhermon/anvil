@@ -121,8 +121,14 @@ struct ApiResponse {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ApiContent {
-    Text { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -182,10 +188,16 @@ fn api_resp_to_turn(api_resp: ApiResponse) -> TurnResponse {
             if let ContentBlock::Text { text } = &blocks[0] {
                 Message::assistant(text.clone())
             } else {
-                Message { role: Role::Assistant, content: MessageContent::Blocks(blocks) }
+                Message {
+                    role: Role::Assistant,
+                    content: MessageContent::Blocks(blocks),
+                }
             }
         }
-        _ => Message { role: Role::Assistant, content: MessageContent::Blocks(blocks) },
+        _ => Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(blocks),
+        },
     };
 
     TurnResponse {
@@ -299,7 +311,10 @@ impl Provider for ClaudeProvider {
                 .map(|e| e.error.message)
                 .unwrap_or(raw);
             warn!(status = %status, error = %msg, "Anthropic API error (tools)");
-            return Err(HarnessError::Api { status: status.as_u16(), body: msg });
+            return Err(HarnessError::Api {
+                status: status.as_u16(),
+                body: msg,
+            });
         }
 
         let api_resp: ApiResponse = resp
@@ -342,7 +357,10 @@ impl Provider for ClaudeProvider {
                 .map(|e| e.error.message)
                 .unwrap_or(raw);
             warn!(status = %status, error = %msg, "Anthropic SSE error");
-            return Err(HarnessError::Api { status: status.as_u16(), body: msg });
+            return Err(HarnessError::Api {
+                status: status.as_u16(),
+                body: msg,
+            });
         }
 
         let (tx, rx) = futures::channel::mpsc::channel::<Result<StreamChunk>>(64);
@@ -410,7 +428,10 @@ impl Provider for ClaudeProvider {
             }
 
             // Stream ended without explicit message_stop.
-            let _ = tx.try_send(Ok(StreamChunk { delta: String::new(), done: true }));
+            let _ = tx.try_send(Ok(StreamChunk {
+                delta: String::new(),
+                done: true,
+            }));
         });
 
         Ok(Box::pin(rx))
