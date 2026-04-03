@@ -1,83 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100" role="img" aria-label="Anvil">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100" fill="none">
   <!--
-    Anvil — provider-agnostic Rust AI agent runtime
-    Logo lockup: icon (left) + wordmark (right)
-    Palette: #2D3748 body, #4A5568 face, #718096 highlights
-
-    Icon anatomy (scaled to fit left 80px, centered vertically in 100px):
-      - Top face: flat work surface
-      - Horn: left-pointing taper off the table
-      - Table body: hexagonal platform
-      - Waist: trapezoid taper
-      - Feet: two rectangular feet
-      - Hardy hole: small cutout in the table
+    anvil-logo.svg — 240×100 logo with wordmark
+    Left zone (0–88): anvil icon silhouette
+    Divider at x=95
+    Right zone (103–232): "anvil" wordmark, stroke-based embedded paths
+    Palette: #2D3748 body/text, #4A5568 face/top, #718096 highlights
   -->
 
-  <!-- === ICON (scale 0.72 of 100x100 base, translate to center in 100x100 left zone) === -->
-  <g transform="translate(6, 4) scale(0.72)">
+  <!-- === ANVIL ICON === -->
 
-    <!-- Feet -->
-    <rect x="18" y="83" width="25" height="9" rx="2" fill="#2D3748"/>
-    <rect x="57" y="83" width="25" height="9" rx="2" fill="#2D3748"/>
+  <!-- Left foot -->
+  <rect x="8" y="65" width="22" height="13" rx="2" fill="#2D3748"/>
+  <!-- Right foot -->
+  <rect x="46" y="65" width="22" height="13" rx="2" fill="#2D3748"/>
 
-    <!-- Waist -->
-    <path d="M28 73 L72 73 L65 83 L35 83 Z" fill="#2D3748"/>
+  <!-- Waist — trapezoid connecting body to feet -->
+  <path d="M15,51 L65,51 L60,65 L20,65 Z" fill="#2D3748"/>
 
-    <!-- Table body -->
-    <path d="M20 57 L80 57 L80 65 L72 73 L28 73 L20 65 Z" fill="#2D3748"/>
+  <!-- Body — main block -->
+  <rect x="10" y="21" width="60" height="30" fill="#2D3748"/>
 
-    <!-- Table top face highlight -->
-    <rect x="19" y="53" width="62" height="4.5" rx="1.5" fill="#4A5568"/>
+  <!-- Horn — left-pointing taper -->
+  <path d="M10,21 L10,36 L1,28 Z" fill="#2D3748"/>
 
-    <!-- Hardy hole cutout -->
-    <rect x="65" y="58.5" width="8" height="6" rx="1" fill="#718096" opacity="0.35"/>
+  <!-- Work face — flat top surface, lighter tone -->
+  <rect x="8" y="12" width="64" height="9" rx="2" fill="#4A5568"/>
 
-    <!-- Horn -->
-    <path d="M20 57 L20 65 L4 62 Z" fill="#2D3748"/>
+  <!-- Highlight stripe on face -->
+  <rect x="8" y="12" width="42" height="3" rx="1.5" fill="#718096"/>
 
-    <!-- Horn tip edge highlight -->
-    <path d="M20 57 L4 62" stroke="#718096" stroke-width="1" fill="none" opacity="0.6"/>
-
-    <!-- Table edge highlight (right side) -->
-    <path d="M80 57 L80 65 L72 73" stroke="#718096" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
-
-  </g>
+  <!-- Hardy hole -->
+  <rect x="63" y="13" width="8" height="6" rx="1" fill="#1A202C"/>
 
   <!-- Divider -->
-  <line x1="82" y1="18" x2="82" y2="82" stroke="#2D3748" stroke-width="1" opacity="0.15"/>
+  <line x1="88" y1="14" x2="88" y2="86"
+        stroke="#4A5568" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
 
+  <!-- === WORDMARK "anvil" — stroke-based embedded letterforms === -->
   <!--
-    === WORDMARK: "anvil" ===
-    Stroke-based geometric sans letterforms.
-    Cap height: 30px. Baseline: y=62. Start: x=93.
-    Stroke: width=4.5, round caps+joins.
-
-    a — circle bowl + right descender stem
-    n — left stem + arch + right stem
-    v — chevron
-    i — stem + dot
-    l — tall stem
+    Cap height: y=36–68 (32px). Stroke-width=5, round caps+joins.
+    a: bowl center (131,50) r=14; open gap at right; stem x=145, y=36–68
+    n: left stem x=157; arch M157,46 cubic to x=175,46; right stem y=46–68
+    v: chevron 183,36 → 192,68 → 201,36
+    i: stem x=209 y=46–68; dot cy=32 r=3.5
+    l: tall stem x=217 y=18–68
   -->
-  <g fill="none" stroke="#2D3748" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#2D3748" stroke-width="5"
+     stroke-linecap="round" stroke-linejoin="round">
 
-    <!-- a: bowl (center 104,52, r=10) open right side + descending stem -->
-    <path d="M114 52 A10 10 0 1 0 114 54"/>
-    <line x1="114" y1="42" x2="114" y2="63"/>
+    <!-- a: nearly-full circle opening on right, plus right stem -->
+    <path d="M145,49 A14 14 0 1 0 145,51"/>
+    <line x1="145" y1="36" x2="145" y2="68"/>
 
-    <!-- n: left stem + arch + right stem -->
-    <line x1="127" y1="42" x2="127" y2="63"/>
-    <path d="M127 47 C127 39 135 39 135 39 C143 39 143 47 143 47 L143 63"/>
+    <!-- n: left stem + arched top + right descent -->
+    <line x1="157" y1="36" x2="157" y2="68"/>
+    <path d="M157,46 C157,36 175,36 175,46 L175,68"/>
 
-    <!-- v: two converging legs -->
-    <polyline points="150,41 158,63 166,41"/>
+    <!-- v: two diagonals meeting at baseline midpoint -->
+    <polyline points="183,36 192,68 201,36"/>
 
-    <!-- i: stem + dot -->
-    <line x1="174" y1="49" x2="174" y2="63"/>
-    <circle cx="174" cy="40" r="2.8" fill="#2D3748" stroke="none"/>
+    <!-- i: short stem + dot above -->
+    <line x1="209" y1="46" x2="209" y2="68"/>
+    <circle cx="209" cy="32" r="3.5" fill="#2D3748" stroke="none"/>
 
-    <!-- l: tall stem -->
-    <line x1="184" y1="30" x2="184" y2="63"/>
+    <!-- l: tall stem extending above cap height -->
+    <line x1="217" y1="18" x2="217" y2="68"/>
 
   </g>
-
 </svg>
