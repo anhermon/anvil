@@ -1,38 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Anvil icon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <!--
-    Anvil icon — 64×64, legible at 32×32.
-    Palette: #2D3748 body, #4A5568 face, #718096 highlights.
-    Anatomy: two feet → waist trapezoid → table body → top face → horn.
-    Hardy hole rendered as a semi-transparent overlay (theme-safe).
-    Scale factor: 0.64 of the 100×100 base grid, centered in 64×64 canvas.
+    anvil-icon.svg — 64×64 icon variant, legible at 32×32
+    Palette: #2D3748 body, #4A5568 face/top, #718096 highlights
   -->
-  <g transform="translate(0, 2) scale(0.64)">
 
-    <!-- Feet -->
-    <rect x="18" y="83" width="25" height="9" rx="2" fill="#2D3748"/>
-    <rect x="57" y="83" width="25" height="9" rx="2" fill="#2D3748"/>
+  <!-- Left foot -->
+  <rect x="8" y="50" width="18" height="10" rx="1.5" fill="#2D3748"/>
+  <!-- Right foot -->
+  <rect x="38" y="50" width="18" height="10" rx="1.5" fill="#2D3748"/>
 
-    <!-- Waist -->
-    <path d="M28 73 L72 73 L65 83 L35 83 Z" fill="#2D3748"/>
+  <!-- Waist — narrows from body to feet -->
+  <path d="M12,39 L52,39 L48,50 L16,50 Z" fill="#2D3748"/>
 
-    <!-- Table body -->
-    <path d="M20 57 L80 57 L80 65 L72 73 L28 73 L20 65 Z" fill="#2D3748"/>
+  <!-- Body — main rectangular block -->
+  <rect x="8" y="15" width="48" height="24" fill="#2D3748"/>
 
-    <!-- Top face -->
-    <rect x="19" y="53" width="62" height="4.5" rx="1.5" fill="#4A5568"/>
+  <!-- Horn — left-pointing taper extending from body -->
+  <path d="M8,15 L8,27 L1,21 Z" fill="#2D3748"/>
 
-    <!-- Hardy hole -->
-    <rect x="65" y="58.5" width="8" height="6" rx="1" fill="#718096" opacity="0.35"/>
+  <!-- Work face — flat top surface, lighter to show the working plane -->
+  <rect x="8" y="8" width="48" height="7" rx="1.5" fill="#4A5568"/>
 
-    <!-- Horn -->
-    <path d="M20 57 L20 65 L4 62 Z" fill="#2D3748"/>
+  <!-- Highlight stripe across left portion of face top -->
+  <rect x="8" y="8" width="32" height="2" rx="1" fill="#718096"/>
 
-    <!-- Horn edge highlight -->
-    <path d="M20 57 L4 62" stroke="#718096" stroke-width="1.2" fill="none" opacity="0.6"/>
-
-    <!-- Table right-edge highlight -->
-    <path d="M80 57 L80 65 L72 73" stroke="#718096" stroke-width="1.5" fill="none"
-          stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
-
-  </g>
+  <!-- Hardy hole — square tool socket near right of face -->
+  <rect x="48" y="9" width="6" height="5" rx="0.5" fill="#1A202C"/>
 </svg>
