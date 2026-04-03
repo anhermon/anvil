@@ -26,7 +26,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
         }
-        "claude" | _ => {
+        _ => {
             let api_key = config.resolved_api_key().ok_or_else(|| {
                 anyhow::anyhow!("ANTHROPIC_API_KEY not set — pass via env or config")
             })?;

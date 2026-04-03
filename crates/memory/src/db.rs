@@ -135,7 +135,7 @@ impl MemoryDb {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.iter().map(|row| parse_row(row)).collect()
+        rows.iter().map(parse_row).collect()
     }
 
     /// Full-text search across episode content.
@@ -152,7 +152,7 @@ impl MemoryDb {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.iter().map(|row| parse_row(row)).collect()
+        rows.iter().map(parse_row).collect()
     }
 
     pub fn pool(&self) -> &SqlitePool {
