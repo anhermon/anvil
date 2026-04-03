@@ -192,3 +192,19 @@ AI-agent commits **must** include the `Co-Authored-By` trailer.
 The project is in **Phase 3** (tool call loop, streaming, eval harness, task DAG). Phases 4–6
 (sub-agent orchestration, self-evolution, control plane) are planned but not yet implemented.
 Do not add stubs or placeholder crates for unimplemented phases without a tracking issue.
+
+---
+
+## Authentication
+
+The harness resolves Anthropic credentials in this priority order:
+
+1. **Subscription token** — reads `~/.claude/.credentials.json` (or `~/.claude/credentials.json`)
+   looking for `claudeAiOauth.accessToken`. The directory can be overridden with `CLAUDE_CONFIG_DIR`.
+   This is the same credentials file written by `claude auth login` (Claude Code) and compatible
+   tools such as opencode and hermes-agent.
+2. **API key** — `ANTHROPIC_API_KEY` environment variable, sent as `x-api-key` header.
+3. **Error** — if neither source yields a non-empty credential, the harness exits with a helpful
+   message pointing to both options.
+
+Use `harness auth status` to inspect which method is active in the current environment.

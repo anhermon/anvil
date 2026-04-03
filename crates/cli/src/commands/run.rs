@@ -36,16 +36,10 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
         }
-        _ => {
-            let api_key = config.resolved_api_key().ok_or_else(|| {
-                anyhow::anyhow!("ANTHROPIC_API_KEY not set — pass via env or config")
-            })?;
-            Arc::new(ClaudeProvider::new(
-                api_key,
-                &config.provider.model,
-                config.provider.max_tokens,
-            ))
-        }
+        _ => Arc::new(
+            ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
+                .map_err(|e| anyhow::anyhow!("{}", e))?,
+        ),
     };
 
     let memory = Arc::new(MemoryDb::open(&config.memory.db_path).await?);
