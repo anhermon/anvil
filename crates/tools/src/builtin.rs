@@ -594,11 +594,15 @@ impl ToolHandler for RefineSkillTool {
 mod skill_tests {
     use super::*;
     use serde_json::json;
-    use std::sync::{atomic::{AtomicU64, Ordering}, Mutex, MutexGuard};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::sync::{Mutex, MutexGuard};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-    fn unique_skills_dir() -> (std::path::PathBuf, MutexGuard<'static, ()>) {
-        let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    static ENV_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    fn get_env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+    async fn unique_skills_dir() -> (std::path::PathBuf, MutexGuard<'static, ()>) {
+        let guard = get_env_lock().lock().await;
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("anvil_skill_test_{}_{}", id, std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -607,7 +611,7 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn save_skill_creates_new_file() {
-        let (tmp, _guard) = unique_skills_dir();
+        let (tmp, _guard) = unique_skills_dir().await;
         let out = SaveSkillTool.call(json!({"name":"test-save","description":"A test skill","content":"# Test"})).await;
         assert!(!out.is_error, "save failed: {}", out.content);
         let v: serde_json::Value = serde_json::from_str(&out.content).unwrap();
@@ -617,7 +621,7 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn save_skill_bumps_version_on_update() {
-        let (tmp, _guard) = unique_skills_dir();
+        let (tmp, _guard) = unique_skills_dir().await;
         SaveSkillTool.call(json!({"name":"vs","description":"first","content":"original"})).await;
         let out = SaveSkillTool.call(json!({"name":"vs","description":"updated","content":"improved"})).await;
         assert!(!out.is_error);
@@ -628,13 +632,13 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn save_skill_missing_name_is_error() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         let out = SaveSkillTool.call(json!({"description":"x","content":"y"})).await;
         assert!(out.is_error);
     }
     #[tokio::test]
     async fn read_skill_increments_uses() {
-        let (tmp, _guard) = unique_skills_dir();
+        let (tmp, _guard) = unique_skills_dir().await;
         SaveSkillTool.call(json!({"name":"rm","description":"r","content":"content"})).await;
         let out = ReadSkillTool.call(json!({"name":"rm"})).await;
         assert!(!out.is_error);
@@ -643,13 +647,13 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn read_skill_missing_returns_error() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         let out = ReadSkillTool.call(json!({"name":"no-such-skill"})).await;
         assert!(out.is_error);
     }
     #[tokio::test]
     async fn list_skills_returns_empty_array_when_no_dir() {
-        let (_base_tmp, _guard) = unique_skills_dir();
+        let (_base_tmp, _guard) = unique_skills_dir().await;
         let tmp = std::env::temp_dir().join(format!("anvil_skill_empty_{}_{}", COUNTER.fetch_add(1, Ordering::Relaxed), std::process::id()));
         std::env::set_var("ANVIL_SKILLS_DIR", &tmp);
         let out = ListSkillsTool.call(json!({})).await;
@@ -657,7 +661,7 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn list_skills_includes_saved_skills() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         SaveSkillTool.call(json!({"name":"skill-a","description":"alpha","content":"a"})).await;
         SaveSkillTool.call(json!({"name":"skill-b","description":"beta","content":"b"})).await;
         let out = ListSkillsTool.call(json!({})).await;
@@ -670,7 +674,7 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn refine_skill_appends_notes() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         SaveSkillTool.call(json!({"name":"ref","description":"r","content":"body"})).await;
         let out = RefineSkillTool.call(json!({"name":"ref","feedback":"Add more examples."})).await;
         assert!(!out.is_error);
@@ -678,13 +682,13 @@ mod skill_tests {
     }
     #[tokio::test]
     async fn refine_skill_missing_returns_error() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         let out = RefineSkillTool.call(json!({"name":"ghost","feedback":"improve"})).await;
         assert!(out.is_error);
     }
     #[tokio::test]
     async fn refine_skill_missing_feedback_is_error() {
-        let (_tmp, _guard) = unique_skills_dir();
+        let (_tmp, _guard) = unique_skills_dir().await;
         SaveSkillTool.call(json!({"name":"nofb","description":"x","content":"y"})).await;
         let out = RefineSkillTool.call(json!({"name":"nofb"})).await;
         assert!(out.is_error);
