@@ -5,8 +5,8 @@ use tracing::{debug, warn};
 
 use crate::{
     error::{HarnessError, Result},
-    message::{Message, MessageContent, Role, StopReason, TurnResponse, Usage},
-    provider::Provider,
+    message::{ContentBlock, Message, MessageContent, Role, StopReason, TurnResponse, Usage},
+    provider::{Provider, ToolDef},
 };
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -46,6 +46,17 @@ struct ApiRequest<'a> {
     messages: Vec<ApiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
+    /// Omitted when empty so `complete()` wire format is unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<ApiTool<'a>>,
+}
+
+/// Anthropic tool definition shape sent in the request body.
+#[derive(Serialize)]
+struct ApiTool<'a> {
+    name: &'a str,
+    description: &'a str,
+    input_schema: &'a serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -66,6 +77,7 @@ struct ApiResponse {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ApiContent {
     Text { text: String },
+    ToolUse { id: String, name: String, input: serde_json::Value },
     #[serde(other)]
     Unknown,
 }
@@ -88,15 +100,18 @@ struct ApiErrorBody {
     message: String,
 }
 
-// ── Provider impl ─────────────────────────────────────────────────────────────
+// ── Shared request logic ───────────────────────────────────────────────────────
 
-#[async_trait]
-impl Provider for ClaudeProvider {
-    fn name(&self) -> &str {
-        &self.model
-    }
-
-    async fn complete(&self, messages: &[Message]) -> Result<TurnResponse> {
+impl ClaudeProvider {
+    /// Build messages, send request, parse response.
+    ///
+    /// When `tools` is empty the request is sent without a `tools` field,
+    /// preserving identical wire behavior to the original `complete()`.
+    async fn execute_request(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+    ) -> Result<TurnResponse> {
         let mut system_prompt: Option<String> = None;
         let mut api_messages: Vec<ApiMessage> = Vec::new();
 
@@ -113,22 +128,33 @@ impl Provider for ClaudeProvider {
                     };
                     let content = match &msg.content {
                         MessageContent::Text(t) => serde_json::Value::String(t.clone()),
-                        MessageContent::Blocks(blocks) => serde_json::to_value(blocks)
-                            .map_err(HarnessError::Serialization)?,
+                        MessageContent::Blocks(blocks) => {
+                            serde_json::to_value(blocks).map_err(HarnessError::Serialization)?
+                        }
                     };
                     api_messages.push(ApiMessage { role: role.to_string(), content });
                 }
             }
         }
 
+        let api_tools: Vec<ApiTool<'_>> = tools
+            .iter()
+            .map(|t| ApiTool {
+                name: &t.name,
+                description: &t.description,
+                input_schema: &t.input_schema,
+            })
+            .collect();
+
         let body = ApiRequest {
             model: &self.model,
             max_tokens: self.max_tokens,
             messages: api_messages,
             system: system_prompt,
+            tools: api_tools,
         };
 
-        debug!(model = %self.model, "sending request to Anthropic API");
+        debug!(model = %self.model, tools = tools.len(), "sending request to Anthropic API");
 
         let resp = self
             .client
@@ -156,13 +182,6 @@ impl Provider for ClaudeProvider {
             .await
             .map_err(|e| HarnessError::Provider(e.to_string()))?;
 
-        let text = api_resp
-            .content
-            .iter()
-            .filter_map(|c| if let ApiContent::Text { text } = c { Some(text.as_str()) } else { None })
-            .collect::<Vec<_>>()
-            .join("");
-
         let stop_reason = match api_resp.stop_reason.as_deref() {
             Some("max_tokens") => StopReason::MaxTokens,
             Some("tool_use") => StopReason::ToolUse,
@@ -170,16 +189,228 @@ impl Provider for ClaudeProvider {
             _ => StopReason::EndTurn,
         };
 
-        Ok(TurnResponse {
-            message: Message::assistant(text),
-            stop_reason,
-            usage: Usage {
-                input_tokens: api_resp.usage.input_tokens,
-                output_tokens: api_resp.usage.output_tokens,
-                cache_read_tokens: api_resp.usage.cache_read_input_tokens,
-                cache_write_tokens: api_resp.usage.cache_creation_input_tokens,
+        let usage = Usage {
+            input_tokens: api_resp.usage.input_tokens,
+            output_tokens: api_resp.usage.output_tokens,
+            cache_read_tokens: api_resp.usage.cache_read_input_tokens,
+            cache_write_tokens: api_resp.usage.cache_creation_input_tokens,
+        };
+
+        // If any tool_use blocks are present return the full structured content
+        // so the agent loop can dispatch tool calls.  Otherwise fall back to
+        // joining plain text (preserves existing `complete()` behavior).
+        let has_tool_use = api_resp.content.iter().any(|c| matches!(c, ApiContent::ToolUse { .. }));
+
+        let message = if has_tool_use {
+            let blocks: Vec<ContentBlock> = api_resp
+                .content
+                .into_iter()
+                .filter_map(|c| match c {
+                    ApiContent::Text { text } => Some(ContentBlock::Text { text }),
+                    ApiContent::ToolUse { id, name, input } => {
+                        Some(ContentBlock::ToolUse { id, name, input })
+                    }
+                    ApiContent::Unknown => None,
+                })
+                .collect();
+            Message { role: Role::Assistant, content: MessageContent::Blocks(blocks) }
+        } else {
+            let text = api_resp
+                .content
+                .iter()
+                .filter_map(|c| if let ApiContent::Text { text } = c { Some(text.as_str()) } else { None })
+                .collect::<Vec<_>>()
+                .join("");
+            Message::assistant(text)
+        };
+
+        Ok(TurnResponse { message, stop_reason, usage, model: api_resp.model })
+    }
+}
+
+// ── Provider impl ─────────────────────────────────────────────────────────────
+
+#[async_trait]
+impl Provider for ClaudeProvider {
+    fn name(&self) -> &str {
+        &self.model
+    }
+
+    async fn complete(&self, messages: &[Message]) -> Result<TurnResponse> {
+        self.execute_request(messages, &[]).await
+    }
+
+    async fn complete_with_tools(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+    ) -> Result<TurnResponse> {
+        self.execute_request(messages, tools).await
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Serialize the `ApiRequest` that `execute_request` would send for the
+    /// given messages and tools — without making a real HTTP call.
+    fn build_request_body(messages: &[Message], tools: &[ToolDef]) -> serde_json::Value {
+        let provider = ClaudeProvider::new("test-key", "test-model", 256);
+        let mut system_prompt: Option<String> = None;
+        let mut api_messages: Vec<ApiMessage> = Vec::new();
+        for msg in messages {
+            match msg.role {
+                Role::System => {
+                    system_prompt = msg.text().map(|t| t.to_string());
+                }
+                Role::User | Role::Assistant | Role::Tool => {
+                    let role = match msg.role {
+                        Role::User | Role::Tool => "user",
+                        Role::Assistant => "assistant",
+                        Role::System => unreachable!(),
+                    };
+                    let content = match &msg.content {
+                        MessageContent::Text(t) => serde_json::Value::String(t.clone()),
+                        MessageContent::Blocks(blocks) => serde_json::to_value(blocks).unwrap(),
+                    };
+                    api_messages.push(ApiMessage { role: role.to_string(), content });
+                }
+            }
+        }
+        let api_tools: Vec<ApiTool<'_>> = tools
+            .iter()
+            .map(|t| ApiTool {
+                name: &t.name,
+                description: &t.description,
+                input_schema: &t.input_schema,
+            })
+            .collect();
+        let body = ApiRequest {
+            model: &provider.model,
+            max_tokens: provider.max_tokens,
+            messages: api_messages,
+            system: system_prompt,
+            tools: api_tools,
+        };
+        serde_json::to_value(body).unwrap()
+    }
+
+    #[test]
+    fn tools_serialized_into_request_body() {
+        let tool = ToolDef {
+            name: "add".to_string(),
+            description: "Adds two numbers".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number"},
+                    "b": {"type": "number"}
+                },
+                "required": ["a", "b"]
+            }),
+        };
+        let body = build_request_body(&[Message::user("what is 2+3?")], &[tool]);
+
+        let tools = body.get("tools").expect("tools field must be present");
+        let arr = tools.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "add");
+        assert_eq!(arr[0]["description"], "Adds two numbers");
+        assert!(arr[0]["input_schema"].is_object());
+    }
+
+    #[test]
+    fn no_tools_omits_field_from_body() {
+        let body = build_request_body(&[Message::user("hello")], &[]);
+        assert!(body.get("tools").is_none(), "tools key must be absent when empty");
+    }
+
+    #[test]
+    fn tool_use_response_parsed_into_content_blocks() {
+        let api_content = vec![
+            ApiContent::Text { text: "Let me look that up.".to_string() },
+            ApiContent::ToolUse {
+                id: "tu_abc".to_string(),
+                name: "search".to_string(),
+                input: json!({"query": "rust lifetimes"}),
             },
-            model: api_resp.model,
-        })
+        ];
+
+        let has_tool_use = api_content.iter().any(|c| matches!(c, ApiContent::ToolUse { .. }));
+        assert!(has_tool_use);
+
+        let blocks: Vec<ContentBlock> = api_content
+            .into_iter()
+            .filter_map(|c| match c {
+                ApiContent::Text { text } => Some(ContentBlock::Text { text }),
+                ApiContent::ToolUse { id, name, input } => {
+                    Some(ContentBlock::ToolUse { id, name, input })
+                }
+                ApiContent::Unknown => None,
+            })
+            .collect();
+
+        assert_eq!(blocks.len(), 2);
+        assert!(
+            matches!(&blocks[0], ContentBlock::Text { text } if text == "Let me look that up.")
+        );
+        assert!(
+            matches!(&blocks[1], ContentBlock::ToolUse { id, name, .. } if id == "tu_abc" && name == "search")
+        );
+    }
+
+    #[test]
+    fn text_only_response_joins_to_plain_message() {
+        let api_content = vec![
+            ApiContent::Text { text: "hello ".to_string() },
+            ApiContent::Text { text: "world".to_string() },
+        ];
+        let has_tool_use = api_content.iter().any(|c| matches!(c, ApiContent::ToolUse { .. }));
+        assert!(!has_tool_use);
+        let text: String = api_content
+            .iter()
+            .filter_map(|c| if let ApiContent::Text { text } = c { Some(text.as_str()) } else { None })
+            .collect::<Vec<_>>()
+            .join("");
+        assert_eq!(text, "hello world");
+    }
+
+    /// Integration test — requires ANTHROPIC_API_KEY in environment.
+    /// Run with: cargo test -- --ignored integration_tool_call_round_trip
+    #[tokio::test]
+    #[ignore]
+    async fn integration_tool_call_round_trip() {
+        let provider = ClaudeProvider::from_env("claude-3-haiku-20240307", 1024)
+            .expect("ANTHROPIC_API_KEY must be set");
+        let tool = ToolDef {
+            name: "get_weather".to_string(),
+            description: "Get the current weather in a given location".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "City and state"}
+                },
+                "required": ["location"]
+            }),
+        };
+        let resp = provider
+            .complete_with_tools(
+                &[Message::user("What's the weather in San Francisco? Use the get_weather tool.")],
+                &[tool],
+            )
+            .await
+            .expect("API call should succeed");
+        assert_eq!(resp.stop_reason, StopReason::ToolUse);
+        let has_tool_block = match &resp.message.content {
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "get_weather")),
+            _ => false,
+        };
+        assert!(has_tool_block, "expected get_weather tool_use block in response");
     }
 }
