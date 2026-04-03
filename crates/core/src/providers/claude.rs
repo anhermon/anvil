@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::{
-    auth::AuthMethod,
     error::{HarnessError, Result},
     message::{ContentBlock, Message, MessageContent, Role, StopReason, TurnResponse, Usage},
     provider::{Provider, StreamChunk, TokenStream, ToolDef},
@@ -16,40 +15,26 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 pub struct ClaudeProvider {
     client: Client,
-    auth: AuthMethod,
+    api_key: String,
     model: String,
     max_tokens: u32,
 }
 
 impl ClaudeProvider {
-    /// Create a provider with an explicit API key (no credentials-file lookup).
     pub fn new(api_key: impl Into<String>, model: impl Into<String>, max_tokens: u32) -> Self {
         Self {
             client: Client::new(),
-            auth: AuthMethod::ApiKey(api_key.into()),
+            api_key: api_key.into(),
             model: model.into(),
             max_tokens,
         }
     }
 
-    /// Build from the best available auth source:
-    /// subscription credentials file -> `ANTHROPIC_API_KEY` env var -> error.
+    /// Build from environment variable ANTHROPIC_API_KEY.
     pub fn from_env(model: impl Into<String>, max_tokens: u32) -> Result<Self> {
-        let auth = AuthMethod::resolve().map_err(|e| HarnessError::Config(e.to_string()))?;
-        Ok(Self {
-            client: Client::new(),
-            auth,
-            model: model.into(),
-            max_tokens,
-        })
-    }
-
-    /// Add the shared auth + versioning headers to a request builder.
-    fn auth_headers(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        self.auth
-            .apply(builder)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
+        let key = std::env::var("ANTHROPIC_API_KEY")
+            .map_err(|_| HarnessError::Config("ANTHROPIC_API_KEY not set".to_string()))?;
+        Ok(Self::new(key, model, max_tokens))
     }
 
     fn build_api_messages(
@@ -249,7 +234,11 @@ impl Provider for ClaudeProvider {
         debug!(model = %self.model, "sending request to Anthropic API");
 
         let resp = self
-            .auth_headers(self.client.post(ANTHROPIC_API_URL))
+            .client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
             .json(&body)
             .send()
             .await
@@ -305,7 +294,11 @@ impl Provider for ClaudeProvider {
         debug!(model = %self.model, tools = tools.len(), "sending tool-use request to Anthropic API");
 
         let resp = self
-            .auth_headers(self.client.post(ANTHROPIC_API_URL))
+            .client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
             .json(&body)
             .send()
             .await
@@ -347,7 +340,11 @@ impl Provider for ClaudeProvider {
         debug!(model = %self.model, "opening SSE stream to Anthropic API");
 
         let resp = self
-            .auth_headers(self.client.post(ANTHROPIC_API_URL))
+            .client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
             .json(&body)
             .send()
             .await

@@ -26,8 +26,6 @@ enum Commands {
     Memory(commands::memory::MemoryArgs),
     /// Batch-evaluate agent against a JSONL test suite
     Eval(commands::eval::EvalArgs),
-    /// Manage authentication credentials
-    Auth(commands::auth::AuthArgs),
 }
 
 #[tokio::main]
@@ -46,6 +44,5 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config(args) => commands::config::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
         Commands::Eval(args) => commands::eval::execute(args).await,
-        Commands::Auth(args) => commands::auth::execute(args).await,
     }
 }
