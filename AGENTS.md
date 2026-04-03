@@ -177,13 +177,22 @@ AI-agent commits **must** include the `Co-Authored-By` trailer.
 
 | Pattern   | Purpose                                   |
 |-----------|-------------------------------------------|
-| `master`  | Stable. Protected. Merge via reviewed PR. |
-| `feat/*`  | New features. Branch from `master`.       |
+| `main`    | Stable. Protected. Merge via reviewed PR. |
+| `dev`     | Integration. Branch from `main`.          |
+| `feat/*`  | New features. Branch from `dev`.          |
 | `fix/*`   | Bug fixes.                                |
 | `docs/*`  | Documentation only.                       |
 | `chore/*` | Deps, CI, tooling.                        |
 
-**Never push directly to `master`.** Always open a PR, even for documentation changes.
+**Never push directly to `main` or `dev`.** Always open a PR, even for documentation changes.
+
+---
+
+## Merge Policy
+
+Agents MUST NOT call the GitHub merge endpoint (`PUT /repos/.../pulls/{n}/merge`).
+When a PR is ready: set the Paperclip issue status to `in_review` and post a comment
+summarizing what was done. The CTO will review and merge.
 
 ---
 
