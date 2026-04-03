@@ -172,9 +172,7 @@ impl Provider for ClaudeCodeProvider {
             ])
             .output()
             .await
-            .map_err(|e| {
-                HarnessError::Provider(format!("failed to spawn claude binary: {e}"))
-            })?;
+            .map_err(|e| HarnessError::Provider(format!("failed to spawn claude binary: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();

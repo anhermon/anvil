@@ -56,7 +56,7 @@ impl AuthMethod {
         }
     }
 
-    /// Human-readable one-line description (used by `harness auth status`).
+    /// Human-readable one-line description (used by `anvil auth status`).
     pub fn describe(&self) -> String {
         match self {
             Self::ApiKey(_) => "API key (from ANTHROPIC_API_KEY env var)".to_string(),
