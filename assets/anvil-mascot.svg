@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!--
+    anvil-mascot.svg — "Anvi" the Anvil character
+    Personified anvil: strong, clever, approachable.
+    Works at 200×200 and scales up cleanly.
+    Palette: #2D3748 body, #4A5568 face/top, #718096 highlights
+             white eyes, #1A202C pupils, #E07070 blush cheeks
+  -->
+
+  <!-- === ANVIL BODY === -->
+
+  <!-- Left foot -->
+  <rect x="36" y="141" width="52" height="28" rx="4" fill="#2D3748"/>
+  <!-- Right foot -->
+  <rect x="112" y="141" width="52" height="28" rx="4" fill="#2D3748"/>
+
+  <!-- Waist — trapezoid bridging body to feet -->
+  <path d="M50,117 L150,117 L140,141 L60,141 Z" fill="#2D3748"/>
+
+  <!-- Body — main rectangular block -->
+  <rect x="44" y="47" width="112" height="70" fill="#2D3748"/>
+
+  <!-- Body left highlight — subtle metallic edge -->
+  <rect x="44" y="47" width="3" height="70" fill="#718096" opacity="0.2"/>
+
+  <!-- Horn — bold taper extending left from body -->
+  <path d="M44,47 L44,87 L16,67 Z" fill="#2D3748"/>
+
+  <!-- Sparkle at horn tip — sharp and clever -->
+  <path d="M16,61 L16,73 M10,67 L22,67"
+        stroke="#718096" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+
+  <!-- Work face — flat top surface, lighter tone -->
+  <rect x="40" y="31" width="120" height="16" rx="3" fill="#4A5568"/>
+
+  <!-- Highlight stripe on face (left two-thirds) -->
+  <rect x="40" y="31" width="80" height="4" rx="2" fill="#718096"/>
+
+  <!-- Hardy hole — square socket near right of face -->
+  <rect x="142" y="33" width="14" height="12" rx="2" fill="#1A202C"/>
+
+  <!-- === ARMS — thick rounded strokes giving a stocky strong look === -->
+  <path d="M44,72 Q18,90 12,118"
+        stroke="#2D3748" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <path d="M156,72 Q182,90 188,118"
+        stroke="#2D3748" stroke-width="14" stroke-linecap="round" fill="none"/>
+
+  <!-- === CHARACTER FACE (on body front surface) === -->
+
+  <!-- Left eye -->
+  <ellipse cx="84" cy="79" rx="10" ry="11" fill="white"/>
+  <circle cx="87" cy="82" r="6" fill="#1A202C"/>
+  <!-- Left eye shine -->
+  <circle cx="83" cy="75" r="2.5" fill="white"/>
+
+  <!-- Right eye -->
+  <ellipse cx="116" cy="79" rx="10" ry="11" fill="white"/>
+  <circle cx="119" cy="82" r="6" fill="#1A202C"/>
+  <!-- Right eye shine -->
+  <circle cx="115" cy="75" r="2.5" fill="white"/>
+
+  <!-- Cheeks — warm blush for approachability -->
+  <circle cx="70" cy="91" r="9" fill="#E07070" opacity="0.35"/>
+  <circle cx="130" cy="91" r="9" fill="#E07070" opacity="0.35"/>
+
+  <!-- Eyebrows — confident raised arch -->
+  <path d="M76,68 Q84,60 92,68"
+        stroke="#718096" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  <path d="M108,68 Q116,60 124,68"
+        stroke="#718096" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+
+  <!-- Smile — wide friendly curve -->
+  <path d="M83,100 Q100,115 117,100"
+        stroke="white" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+</svg>
