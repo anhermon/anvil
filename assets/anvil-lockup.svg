@@ -1,59 +1,113 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 230 80" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 80" fill="none">
   <!--
     Anvil — icon + wordmark lockup
-    Left zone (0–70): icon at 0.6 scale
+    Left zone (0–70): icon with dark bg + ember glow
     Divider at x=72
-    Right zone (80–230): geometric sans-serif wordmark "anvil"
-    Monochrome — uses currentColor throughout.
+    Right zone (80–260): geometric sans-serif wordmark "anvil"
   -->
+  <defs>
+    <!-- Icon background -->
+    <radialGradient id="lk-bg" cx="50%" cy="45%" r="70%">
+      <stop offset="0%"   stop-color="#272727"/>
+      <stop offset="100%" stop-color="#151515"/>
+    </radialGradient>
+    <!-- Steel -->
+    <linearGradient id="lk-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7a7a7a"/>
+      <stop offset="45%"  stop-color="#585858"/>
+      <stop offset="100%" stop-color="#363636"/>
+    </linearGradient>
+    <!-- Work face -->
+    <linearGradient id="lk-face" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#636363"/>
+      <stop offset="40%"  stop-color="#8a8a8a"/>
+      <stop offset="60%"  stop-color="#8a8a8a"/>
+      <stop offset="100%" stop-color="#636363"/>
+    </linearGradient>
+    <!-- Ember gradient -->
+    <linearGradient id="lk-ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#b03000" stop-opacity="0"/>
+      <stop offset="15%"  stop-color="#ff5500"/>
+      <stop offset="50%"  stop-color="#ff7200"/>
+      <stop offset="85%"  stop-color="#ff5500"/>
+      <stop offset="100%" stop-color="#b03000" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Ember glow filter (tight, for small icon) -->
+    <filter id="lk-glow" x="-30%" y="-400%" width="160%" height="1000%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Particle glow -->
+    <filter id="lk-ptcl" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.2"/>
+    </filter>
+    <!-- Clip icon to rounded square -->
+    <clipPath id="lk-clip">
+      <rect x="4" y="4" width="62" height="72" rx="14"/>
+    </clipPath>
+  </defs>
 
-  <!-- === ICON (0.6 scale, vertically centered in 80px tall canvas) === -->
-  <g transform="translate(3, 8) scale(0.63)">
-    <rect x="18" y="83" width="25" height="8" rx="2" fill="currentColor"/>
-    <rect x="57" y="83" width="25" height="8" rx="2" fill="currentColor"/>
-    <path d="M28 73 L72 73 L65 83 L35 83 Z" fill="currentColor"/>
-    <path d="M20 57 L80 57 L80 65 L72 73 L28 73 L20 65 Z" fill="currentColor"/>
-    <rect x="65" y="58.5" width="8" height="6" rx="1" fill="white"/>
-    <path d="M20 57 L20 65 L5 62 Z" fill="currentColor"/>
-    <rect x="19" y="53" width="62" height="4.5" rx="1.5" fill="currentColor"/>
+  <!-- === ICON (62×72 rounded square, top-left offset 4,4) === -->
+  <rect x="4" y="4" width="62" height="72" rx="14" fill="url(#lk-bg)"/>
+  <g clip-path="url(#lk-clip)">
+    <!-- Feet -->
+    <rect x="10" y="55" width="18" height="7"  rx="1.5" fill="url(#lk-steel)"/>
+    <rect x="42" y="55" width="18" height="7"  rx="1.5" fill="url(#lk-steel)"/>
+    <!-- Waist -->
+    <path d="M15 47 L55 47 L51 55 L19 55 Z" fill="url(#lk-steel)"/>
+    <!-- Body -->
+    <path d="M9  33 L61 33 L61 39 L51 47 L19 47 L9  39 Z" fill="url(#lk-steel)"/>
+    <!-- Horn -->
+    <path d="M9  33 L9  39 L2  36 Z" fill="url(#lk-steel)"/>
+    <!-- Work face -->
+    <rect x="8"  y="28" width="54" height="5" rx="1.5" fill="url(#lk-face)"/>
+    <!-- Hardy hole -->
+    <rect x="56" y="29" width="4"  height="3.5" rx="0.5" fill="#1e1e1e" opacity="0.85"/>
+    <!-- Ember glow -->
+    <rect x="8"  y="26" width="54" height="3" rx="1.5"
+          fill="url(#lk-ember)" filter="url(#lk-glow)"/>
+    <!-- Heat particles -->
+    <g filter="url(#lk-ptcl)" opacity="0.55">
+      <circle cx="22" cy="22" r="1.8" fill="#ff6a00"/>
+      <circle cx="35" cy="18" r="1.5" fill="#ffa000"/>
+      <circle cx="48" cy="21" r="1.8" fill="#ff7500"/>
+    </g>
   </g>
 
   <!-- Divider -->
-  <line x1="72" y1="15" x2="72" y2="65" stroke="currentColor" stroke-width="1.5"
-        stroke-linecap="round" opacity="0.2"/>
+  <line x1="74" y1="14" x2="74" y2="66"
+        stroke="currentColor" stroke-width="1.2"
+        stroke-linecap="round" opacity="0.18"/>
 
-  <!--
-    === WORDMARK: "anvil" ===
-    Stroke-based geometric sans letterforms.
-    Cap height: 28px. Baseline: y=58. Start: x=82.
-    Stroke: width=4, round caps+joins, no fill.
-    Letter spacing: ~18px per glyph, 4px gap between letters.
-
-    a  — full circle (bowl) + right descending stem
-    n  — left stem + arch to right stem
-    v  — chevron (two diagonals meeting at bottom point)
-    i  — vertical stem + dot above
-    l  — tall vertical stem
+  <!-- === WORDMARK: "anvil" ===
+       Geometric stroke-based letterforms.
+       Cap height: 26px. Baseline: y=56. Start: x=84.
+       Stroke: width=3.8, round caps+joins.
   -->
-  <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <g stroke="currentColor" stroke-width="3.8"
+     stroke-linecap="round" stroke-linejoin="round">
 
-    <!-- a: bowl center (91, 46), r=10; open on the right; stem from top-right down to baseline -->
-    <path d="M101 47 A10 10 0 1 0 101 49"/>
-    <line x1="101" y1="37" x2="101" y2="58"/>
+    <!-- a: open circular bowl (left side open at top-right) + right stem -->
+    <path d="M97 46 A9 9 0 1 0 97 48"/>
+    <line x1="97" y1="37" x2="97" y2="56"/>
 
-    <!-- n: left stem; arch; right stem -->
-    <line x1="112" y1="37" x2="112" y2="58"/>
-    <path d="M112 42 C112 35 119 35 119 35 C126 35 126 42 126 42 L126 58"/>
+    <!-- n: left stem + arch + right stem -->
+    <line x1="108" y1="37" x2="108" y2="56"/>
+    <path d="M108 42 C108 35 115 35 115 35 C122 35 122 42 122 42 L122 56"/>
 
-    <!-- v: two legs converging -->
-    <polyline points="133,36 140,58 147,36"/>
+    <!-- v: two converging legs -->
+    <polyline points="129,36 136,56 143,36"/>
 
     <!-- i: stem + dot -->
-    <line x1="155" y1="43" x2="155" y2="58"/>
-    <circle cx="155" cy="35" r="2.5" fill="currentColor" stroke="none"/>
+    <line x1="151" y1="43" x2="151" y2="56"/>
+    <circle cx="151" cy="34" r="2.2" fill="currentColor" stroke="none"/>
 
     <!-- l: tall stem -->
-    <line x1="164" y1="24" x2="164" y2="58"/>
+    <line x1="160" y1="22" x2="160" y2="56"/>
 
   </g>
 </svg>

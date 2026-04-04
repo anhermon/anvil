@@ -1,28 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <!--
-    anvil — provider-agnostic Rust AI agent runtime
-    Clean geometric blacksmith's anvil silhouette, side view.
-    Deep navy fill (#1a1a2e). Compound path: horn + face + body + waist + feet.
+    Anvil — app icon
+    Dark rounded-square background. Steel-gray anvil silhouette.
+    Orange ember glow on the work face. Heat particles above.
   -->
+  <defs>
+    <!-- Background gradient: very dark, slightly lighter center -->
+    <radialGradient id="bg" cx="50%" cy="45%" r="70%">
+      <stop offset="0%"   stop-color="#272727"/>
+      <stop offset="100%" stop-color="#151515"/>
+    </radialGradient>
+
+    <!-- Steel body: charcoal gradient top-to-bottom -->
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7a7a7a"/>
+      <stop offset="40%"  stop-color="#585858"/>
+      <stop offset="100%" stop-color="#363636"/>
+    </linearGradient>
+
+    <!-- Work face (top flat surface): slightly lighter center -->
+    <linearGradient id="face" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#636363"/>
+      <stop offset="35%"  stop-color="#8a8a8a"/>
+      <stop offset="65%"  stop-color="#8a8a8a"/>
+      <stop offset="100%" stop-color="#636363"/>
+    </linearGradient>
+
+    <!-- Ember line: orange glow across the top edge -->
+    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#b03000" stop-opacity="0"/>
+      <stop offset="12%"  stop-color="#ff5500"/>
+      <stop offset="40%"  stop-color="#ff7200"/>
+      <stop offset="60%"  stop-color="#ff7200"/>
+      <stop offset="88%"  stop-color="#ff5500"/>
+      <stop offset="100%" stop-color="#b03000" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Glow filter for the orange ember line -->
+    <filter id="glow-edge" x="-20%" y="-300%" width="140%" height="800%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Soft filter for floating heat particles -->
+    <filter id="glow-particle" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="200" height="200" rx="42" fill="url(#bg)"/>
+
+  <!-- === ANVIL BODY === -->
 
   <!-- Left foot -->
-  <rect x="12" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
-
+  <rect x="40" y="144" width="46" height="18" rx="4" fill="url(#steel)"/>
   <!-- Right foot -->
-  <rect x="78" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
+  <rect x="114" y="144" width="46" height="18" rx="4" fill="url(#steel)"/>
 
-  <!-- Waist — trapezoid connecting body to feet -->
-  <path d="M24 56 L96 56 L88 66 L32 66 Z" fill="#1a1a2e"/>
+  <!-- Waist — trapezoid bridging body to feet -->
+  <path d="M52 128 L148 128 L138 144 L62 144 Z" fill="url(#steel)"/>
 
-  <!-- Body — main table platform -->
-  <path d="M14 40 L106 40 L106 48 L96 56 L24 56 L14 48 Z" fill="#1a1a2e"/>
+  <!-- Main body — tapers gently toward the waist -->
+  <path d="M36 95 L164 95 L164 110 L148 128 L52 128 L36 110 Z" fill="url(#steel)"/>
 
-  <!-- Hardy hole — square punch-through in table surface -->
-  <rect x="89" y="41" width="9" height="8" rx="1" fill="#f4f4f8"/>
+  <!-- Horn — tapered beak extending left -->
+  <path d="M36 95 L36 110 L14 102 Z" fill="url(#steel)"/>
 
-  <!-- Horn — tapered left projection -->
-  <path d="M14 40 L14 48 L1 45 Z" fill="#1a1a2e"/>
+  <!-- Work face — flat top surface, slightly lighter -->
+  <rect x="35" y="83" width="130" height="12" rx="3" fill="url(#face)"/>
 
-  <!-- Work face — flat top surface -->
-  <rect x="13" y="35" width="94" height="5" rx="1.5" fill="#1a1a2e"/>
+  <!-- Hardy hole — recessed square punch-out in the top-right -->
+  <rect x="147" y="85" width="11" height="9" rx="1.5" fill="#1e1e1e" opacity="0.85"/>
+
+  <!-- Ground shadow beneath the anvil -->
+  <ellipse cx="100" cy="164" rx="62" ry="6" fill="#000" opacity="0.28"/>
+
+  <!-- === EMBER GLOW on top face edge === -->
+  <rect x="35" y="81" width="130" height="5" rx="2.5"
+        fill="url(#ember)" filter="url(#glow-edge)"/>
+
+  <!-- === HEAT PARTICLES rising above the glow === -->
+  <!-- Rendered as blurred blobs — glow pass first, then hard center -->
+  <g filter="url(#glow-particle)" opacity="0.55">
+    <circle cx="68"  cy="70" r="4"   fill="#ff6a00"/>
+    <circle cx="85"  cy="58" r="3"   fill="#ff8800"/>
+    <circle cx="102" cy="50" r="3.5" fill="#ffa000"/>
+    <circle cx="122" cy="62" r="3.5" fill="#ff7500"/>
+    <circle cx="140" cy="54" r="2.5" fill="#ff8800"/>
+    <circle cx="57"  cy="78" r="2.5" fill="#ff5c00"/>
+    <circle cx="152" cy="72" r="2"   fill="#ff6a00"/>
+  </g>
+  <!-- Hard bright centers -->
+  <circle cx="85"  cy="58" r="1.2" fill="#ffcc88" opacity="0.6"/>
+  <circle cx="102" cy="50" r="1.5" fill="#ffcc88" opacity="0.55"/>
+  <circle cx="122" cy="62" r="1.2" fill="#ffcc88" opacity="0.5"/>
 </svg>
