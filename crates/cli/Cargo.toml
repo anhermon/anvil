@@ -8,12 +8,16 @@ license.workspace = true
 name = "anvil"
 path = "src/main.rs"
 
+[features]
+evolution = ["harness-evolution"]
+
 [dependencies]
 harness-core = { workspace = true }
 harness-tools = { workspace = true }
 harness-memory = { workspace = true }
 harness-github = { workspace = true }
 harness-paperclip = { workspace = true }
+harness-evolution = { workspace = true, optional = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }

@@ -1,0 +1,24 @@
+[package]
+name = "harness-evolution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Phantom-pattern 5-gate self-evolution engine for paperclip-harness"
+
+[dependencies]
+harness-core    = { workspace = true }
+harness-memory  = { workspace = true }
+async-trait     = { workspace = true }
+tokio           = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+anyhow          = { workspace = true }
+thiserror       = { workspace = true }
+tracing         = { workspace = true }
+uuid            = { workspace = true }
+chrono          = { workspace = true }
+sqlx            = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile   = "3"

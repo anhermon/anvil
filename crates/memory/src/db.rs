@@ -128,6 +128,26 @@ impl MemoryDb {
             .await?;
         }
 
+        // Evolution log — written by harness-evolution, never modified in-place.
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_log (
+                id              TEXT PRIMARY KEY NOT NULL,
+                session_id      TEXT NOT NULL,
+                prompt_score    REAL NOT NULL,
+                outcome_kind    TEXT NOT NULL,
+                outcome_detail  TEXT NOT NULL,
+                created_at      TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_evolution_session ON evolution_log(session_id)",
+        )
+        .execute(pool)
+        .await?;
+
         Ok(())
     }
 
@@ -223,6 +243,43 @@ impl MemoryDb {
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+}
+
+// ---------------------------------------------------------------------------
+// Evolution log helpers (used by harness-evolution without a circular dep)
+// ---------------------------------------------------------------------------
+
+/// A thin record mirroring `harness_evolution::types::EvolutionRecord`.
+///
+/// Defined here so harness-memory has no dependency on harness-evolution.
+#[derive(Debug)]
+pub struct EvolutionEntry<'a> {
+    pub id: &'a str,
+    pub session_id: &'a str,
+    pub prompt_score: f64,
+    pub outcome_kind: &'a str,
+    pub outcome_detail: &'a str,
+    pub created_at: &'a str,
+}
+
+/// Insert one evolution record into the `evolution_log` table.
+///
+/// Called by `harness-evolution` via the pool returned by [`MemoryDb::pool`].
+pub async fn insert_evolution_entry(pool: &SqlitePool, entry: &EvolutionEntry<'_>) -> Result<()> {
+    sqlx::query(
+        r#"INSERT INTO evolution_log
+               (id, session_id, prompt_score, outcome_kind, outcome_detail, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)"#,
+    )
+    .bind(entry.id)
+    .bind(entry.session_id)
+    .bind(entry.prompt_score)
+    .bind(entry.outcome_kind)
+    .bind(entry.outcome_detail)
+    .bind(entry.created_at)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn parse_row(row: &sqlx::sqlite::SqliteRow) -> Result<Episode> {

@@ -317,6 +317,27 @@ impl Agent {
             }
         }
 
+        // Post-session evolution hook (compiled only when the `evolution` feature is enabled).
+        #[cfg(feature = "evolution")]
+        if self.depth == 0 {
+            let prompt = self
+                .config
+                .agent
+                .system_prompt
+                .as_deref()
+                .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.");
+            let engine = harness_evolution::defaults::default_engine(Arc::clone(&self.memory));
+            match engine.evolve(&session, prompt).await {
+                Ok(outcome) => {
+                    info!(?outcome, "evolution cycle complete");
+                }
+                Err(e) => {
+                    // Non-fatal: log and continue so the session result is not affected.
+                    warn!(error = %e, "evolution cycle failed (non-fatal)");
+                }
+            }
+        }
+
         Ok(session)
     }
 
