@@ -228,7 +228,11 @@ impl TaskExecutor for AnvilExecutor {
             "Running Anvil agent for Paperclip task"
         );
 
-        let agent = Agent::new(self.provider.clone(), self.memory.clone(), self.config.clone());
+        let agent = Agent::new(
+            self.provider.clone(),
+            self.memory.clone(),
+            self.config.clone(),
+        );
         let session = agent.run(&goal).await?;
 
         // Extract last assistant message text as the completion comment

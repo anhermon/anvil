@@ -249,11 +249,7 @@ impl PaperclipClient {
     // ── create issue ───────────────────────────────────────────────────────
 
     /// POST /api/companies/{companyId}/issues
-    pub async fn create_issue(
-        &self,
-        company_id: &str,
-        req: CreateIssueRequest,
-    ) -> Result<Issue> {
+    pub async fn create_issue(&self, company_id: &str, req: CreateIssueRequest) -> Result<Issue> {
         let resp = self
             .auth_post(&format!("/api/companies/{company_id}/issues"))
             .json(&req)
@@ -306,11 +302,12 @@ mod tests {
         });
 
         let client = PaperclipClient::new(format!("http://{addr}"), "key".into());
-        let result = client
-            .checkout("issue-1", "agent-1", &["todo"])
-            .await;
+        let result = client.checkout("issue-1", "agent-1", &["todo"]).await;
 
         assert!(result.is_ok(), "checkout should not error on 409");
-        assert!(result.unwrap().is_none(), "checkout should return None on 409");
+        assert!(
+            result.unwrap().is_none(),
+            "checkout should return None on 409"
+        );
     }
 }

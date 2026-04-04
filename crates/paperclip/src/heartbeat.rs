@@ -46,8 +46,11 @@ pub trait TaskExecutor: Send + Sync {
     ///
     /// `item` — the inbox item selected for this heartbeat
     /// `context` — full heartbeat context (issue + ancestors + cursor)
-    async fn execute(&self, item: &InboxItem, context: &HeartbeatContext)
-        -> Result<ExecutionOutcome>;
+    async fn execute(
+        &self,
+        item: &InboxItem,
+        context: &HeartbeatContext,
+    ) -> Result<ExecutionOutcome>;
 }
 
 /// Configuration for the heartbeat loop.
@@ -114,10 +117,7 @@ impl HeartbeatLoop {
         }
 
         let mut processed = 0;
-        for item in candidates
-            .iter()
-            .take(self.config.max_tasks_per_wake)
-        {
+        for item in candidates.iter().take(self.config.max_tasks_per_wake) {
             if self.process_task(item).await? {
                 processed += 1;
             }
