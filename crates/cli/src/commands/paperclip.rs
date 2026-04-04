@@ -29,10 +29,10 @@ use harness_core::{
     providers::claude::ClaudeProvider,
 };
 use harness_memory::MemoryDb;
+use harness_paperclip::types::{HeartbeatContext, InboxItem};
 use harness_paperclip::{
     heartbeat::ExecutionOutcome, HeartbeatConfig, HeartbeatLoop, PaperclipClient, TaskExecutor,
 };
-use harness_paperclip::types::{HeartbeatContext, InboxItem};
 
 use crate::agent::Agent;
 
@@ -42,7 +42,11 @@ use crate::agent::Agent;
 #[derive(Parser)]
 pub struct PaperclipArgs {
     /// Paperclip API base URL
-    #[arg(long, env = "PAPERCLIP_API_URL", default_value = "http://127.0.0.1:3100")]
+    #[arg(
+        long,
+        env = "PAPERCLIP_API_URL",
+        default_value = "http://127.0.0.1:3100"
+    )]
     api_url: String,
 
     /// Paperclip API key (bearer token)
@@ -174,7 +178,11 @@ impl AnvilExecutor {
                 .context("open memory db for heartbeat executor")?,
         );
 
-        Ok(Self { provider, memory, config })
+        Ok(Self {
+            provider,
+            memory,
+            config,
+        })
     }
 
     /// Extract goal from issue description.  Uses the ## Objective section
