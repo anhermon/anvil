@@ -281,11 +281,9 @@ mod tests {
         let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
 
         let ping_payload = serde_json::json!({ "cmd": "ping" }).to_string();
-        ws.send(tokio_tungstenite::tungstenite::Message::Text(
-            ping_payload,
-        ))
-        .await
-        .expect("send");
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(ping_payload))
+            .await
+            .expect("send");
 
         let msg = ws.next().await.expect("no msg").expect("ws err");
         if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
@@ -310,11 +308,9 @@ mod tests {
         let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
 
         let cmd_payload = serde_json::json!({ "cmd": "interrupt" }).to_string();
-        ws.send(tokio_tungstenite::tungstenite::Message::Text(
-            cmd_payload,
-        ))
-        .await
-        .expect("send");
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd_payload))
+            .await
+            .expect("send");
 
         // Give the server a moment to forward the command.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
