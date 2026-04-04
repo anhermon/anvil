@@ -74,6 +74,19 @@ impl MemoryDb {
         .await?;
 
         sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_records (
+                id             TEXT PRIMARY KEY NOT NULL,
+                session_id     TEXT NOT NULL,
+                prompt_score   REAL NOT NULL,
+                outcome_kind   TEXT NOT NULL,
+                outcome_detail TEXT NOT NULL,
+                created_at     TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
             r#"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
                 id UNINDEXED,
                 content,
