@@ -1,0 +1,38 @@
+[package]
+name = "harness-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "WebSocket control-plane gateway for Anvil — streams agent events and accepts control commands"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# HTTP / WebSocket server
+axum = { workspace = true, features = ["ws"] }
+tower-http = { workspace = true, features = ["cors"] }
+
+# Serialisation
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "time"] }
+tokio-tungstenite = "0.21"
+reqwest = { version = "0.12", features = ["json"] }
+futures = { workspace = true }
