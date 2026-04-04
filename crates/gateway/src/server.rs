@@ -50,8 +50,7 @@ impl Gateway {
     ///
     /// Returns an error if the TCP listener cannot bind to the configured port.
     pub async fn start(self) -> anyhow::Result<GatewayHandle> {
-        let (event_tx, _) =
-            broadcast::channel::<AgentEvent>(self.config.event_buffer);
+        let (event_tx, _) = broadcast::channel::<AgentEvent>(self.config.event_buffer);
         let (cmd_tx, cmd_rx) = mpsc::channel::<ControlCommand>(64);
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -72,10 +71,9 @@ impl Gateway {
         info!("harness-gateway listening on ws://{}/ws", bound_addr);
 
         let server_task: JoinHandle<()> = tokio::spawn(async move {
-            let server = axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    let _ = shutdown_rx.await;
-                });
+            let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            });
             if let Err(e) = server.await {
                 error!("gateway server error: {e}");
             }
@@ -131,10 +129,7 @@ async fn health_handler() -> impl IntoResponse {
     axum::Json(serde_json::json!({ "status": "ok" }))
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -234,16 +229,14 @@ mod tests {
         // No client subscribed — send should not panic.
         handle.emit(AgentEvent::token("hello")).await;
         handle.emit(AgentEvent::error("oops")).await;
-        handle
-            .emit(AgentEvent::turn_start(Uuid::new_v4()))
-            .await;
+        handle.emit(AgentEvent::turn_start(Uuid::new_v4())).await;
         handle.shutdown().await;
     }
 
     #[tokio::test]
     async fn test_ws_event_delivery() {
-        use tokio_tungstenite::connect_async;
         use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::connect_async;
 
         let handle = start_test_gateway().await;
         let ws_url = format!("ws://{}/ws", handle.addr);
@@ -266,8 +259,7 @@ mod tests {
         // Receive on the client side.
         let msg = ws.next().await.expect("no msg").expect("ws err");
         if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
-            let ev: serde_json::Value =
-                serde_json::from_str(&text).expect("json");
+            let ev: serde_json::Value = serde_json::from_str(&text).expect("json");
             assert_eq!(ev["kind"], "token");
             assert_eq!(ev["delta"], "streaming!");
         } else {
@@ -280,19 +272,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_ws_ping_pong() {
-        use tokio_tungstenite::connect_async;
         use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::connect_async;
 
         let handle = start_test_gateway().await;
         let ws_url = format!("ws://{}/ws", handle.addr);
 
         let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
 
-        let ping_payload =
-            serde_json::json!({ "cmd": "ping" }).to_string();
-        ws.send(tokio_tungstenite::tungstenite::Message::Text(ping_payload.into()))
-            .await
-            .expect("send");
+        let ping_payload = serde_json::json!({ "cmd": "ping" }).to_string();
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            ping_payload.into(),
+        ))
+        .await
+        .expect("send");
 
         let msg = ws.next().await.expect("no msg").expect("ws err");
         if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
@@ -308,27 +301,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_ws_control_command_forwarded() {
-        use tokio_tungstenite::connect_async;
         use futures::{SinkExt, StreamExt as _};
+        use tokio_tungstenite::connect_async;
 
         let mut handle = start_test_gateway().await;
         let ws_url = format!("ws://{}/ws", handle.addr);
 
         let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
 
-        let cmd_payload =
-            serde_json::json!({ "cmd": "interrupt" }).to_string();
-        ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd_payload.into()))
-            .await
-            .expect("send");
+        let cmd_payload = serde_json::json!({ "cmd": "interrupt" }).to_string();
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            cmd_payload.into(),
+        ))
+        .await
+        .expect("send");
 
         // Give the server a moment to forward the command.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let cmd = handle
-            .cmd_rx
-            .try_recv()
-            .expect("no command received");
+        let cmd = handle.cmd_rx.try_recv().expect("no command received");
         assert_eq!(cmd, ControlCommand::Interrupt);
 
         ws.close(None).await.ok();
