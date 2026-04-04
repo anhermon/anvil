@@ -24,8 +24,8 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 
 # TUI
-ratatui = "0.29"
-crossterm = { version = "0.28", features = ["event-stream"] }
+ratatui = "0.28"
+crossterm = { version = "0.27", features = ["event-stream"] }
 
 # WebSocket client
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }

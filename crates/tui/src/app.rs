@@ -107,11 +107,7 @@ impl App {
     }
 
     /// Handle a key press. Returns an `AppEvent` to enqueue, or None.
-    fn handle_key(
-        &mut self,
-        code: KeyCode,
-        modifiers: KeyModifiers,
-    ) -> Option<AppEvent> {
+    fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<AppEvent> {
         match code {
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(AppEvent::Quit),
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {

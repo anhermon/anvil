@@ -26,7 +26,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // Title bar
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(" anvil-tui ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::styled(
+            " anvil-tui ",
+            Style::default().fg(Color::Black).bg(Color::Cyan),
+        ),
         Span::raw("  "),
         Span::styled(&app.gateway_url, Style::default().fg(Color::DarkGray)),
         Span::raw("  "),
@@ -81,15 +84,19 @@ fn draw_event_list(f: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!("{ts} "),
-                    Style::default().fg(Color::DarkGray).add_modifier(if selected {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(if selected {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
                 ),
                 Span::styled(
                     format!("{label:<12} "),
-                    Style::default().fg(label_color).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(label_color)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(summary, style),
             ]))
@@ -102,11 +109,7 @@ fn draw_event_list(f: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     }
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Events "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" Events "))
         .highlight_style(Style::default().bg(Color::DarkGray));
 
     f.render_stateful_widget(list, area, &mut list_state);
@@ -132,10 +135,16 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             let mut lines = vec![
                 Line::from(vec![
                     Span::raw(" "),
-                    Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        label,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw("  "),
                     Span::styled(
-                        event.timestamp().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                        event
+                            .timestamp()
+                            .format("%Y-%m-%d %H:%M:%S UTC")
+                            .to_string(),
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]),
@@ -149,11 +158,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     };
 
     // Scroll: skip `detail_offset` lines
-    let scrolled_content: Vec<Line> = content
-        .lines
-        .into_iter()
-        .skip(app.detail_offset)
-        .collect();
+    let scrolled_content: Vec<Line> = content.lines.into_iter().skip(app.detail_offset).collect();
 
     let paragraph = Paragraph::new(Text::from(scrolled_content))
         .block(
