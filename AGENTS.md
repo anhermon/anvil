@@ -1,4 +1,4 @@
-# AGENTS.md — anvil
+# AGENTS.md — paperclip-harness
 
 This file is read by AI coding agents (Claude Code, Codex, Cursor, etc.) at the start of every
 session. Follow these instructions precisely. They override any default model behaviour.
@@ -7,7 +7,7 @@ session. Follow these instructions precisely. They override any default model be
 
 ## What this project is
 
-`anvil` is a **self-bootstrapping agent harness written in Rust**. It is not a chatbot
+`paperclip-harness` is a **self-bootstrapping agent harness written in Rust**. It is not a chatbot
 framework. It is an opinionated runtime that:
 
 1. Accepts a goal from the user.

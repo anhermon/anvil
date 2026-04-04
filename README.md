@@ -1,4 +1,4 @@
-# anvil
+# paperclip-harness
 
 > A world-class, Rust-native agent harness. One binary. Any LLM. Full autonomy with comfortable human override.
 
@@ -8,7 +8,7 @@
 
 ## Vision
 
-Most agent frameworks bolt autonomy onto a chat loop. `anvil` is designed from first principles as a **self-bootstrapping agent OS**:
+Most agent frameworks bolt autonomy onto a chat loop. `paperclip-harness` is designed from first principles as a **self-bootstrapping agent OS**:
 
 1. You run the binary, configure your LLM provider, and describe your goals.
 2. The agent plans its first tasks, builds the skills it needs, and spawns sub-agents to execute them.
@@ -107,8 +107,8 @@ anvil memory search "recent goals"
 
 ```bash
 # Requires Rust 1.75+
-git clone https://github.com/anhermon/anvil
-cd anvil
+git clone https://github.com/anhermon/paperclip-harness
+cd paperclip-harness
 
 # Run with Claude (default)
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -122,22 +122,6 @@ cargo run -- config --check
 
 # Search episodic memory
 cargo run -- memory search "yesterday's goal"
-```
-
----
-
-## Development
-
-Install [Task](https://taskfile.dev/#/installation) then use these commands:
-
-```bash
-task build    # cargo build --release
-task test     # cargo test --workspace
-task lint     # cargo clippy --workspace --all-targets -- -D warnings
-task fmt      # cargo fmt --all
-task check    # fmt + lint + test (full CI gate)
-task install  # cargo install --path crates/cli
-task          # list all tasks
 ```
 
 ---

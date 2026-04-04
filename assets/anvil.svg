@@ -1,43 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <!--
-    Anvil — app icon
-    Dark rounded-square background. Steel-gray anvil silhouette.
-    Orange ember glow on the work face. Heat particles above.
+    Anvil — app icon (200×200)
+    Dark rounded-square background. Classic anvil side-profile.
+    Orange ember glow on the work face, ambient heat halo above.
+    Reference: board-provided Gemini logo (2026-04-04).
   -->
   <defs>
-    <!-- Background gradient: very dark, slightly lighter center -->
-    <radialGradient id="bg" cx="50%" cy="45%" r="70%">
-      <stop offset="0%"   stop-color="#272727"/>
-      <stop offset="100%" stop-color="#151515"/>
+    <!-- Background: near-black with subtle warm center -->
+    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%"   stop-color="#1e1e1e"/>
+      <stop offset="100%" stop-color="#111111"/>
     </radialGradient>
 
-    <!-- Steel body: charcoal gradient top-to-bottom -->
+    <!-- Anvil body: steel gray, lighter top, darker bottom -->
     <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#7a7a7a"/>
-      <stop offset="40%"  stop-color="#585858"/>
-      <stop offset="100%" stop-color="#363636"/>
+      <stop offset="0%"   stop-color="#909090"/>
+      <stop offset="20%"  stop-color="#747474"/>
+      <stop offset="60%"  stop-color="#555555"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
     </linearGradient>
 
-    <!-- Work face (top flat surface): slightly lighter center -->
+    <!-- Horn / left arm: slightly darker steel -->
+    <linearGradient id="horn-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#707070"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
+    </linearGradient>
+
+    <!-- Work face top: bright horizontal highlight -->
     <linearGradient id="face" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#636363"/>
-      <stop offset="35%"  stop-color="#8a8a8a"/>
-      <stop offset="65%"  stop-color="#8a8a8a"/>
-      <stop offset="100%" stop-color="#636363"/>
+      <stop offset="0%"   stop-color="#6a6a6a"/>
+      <stop offset="35%"  stop-color="#a0a0a0"/>
+      <stop offset="65%"  stop-color="#a0a0a0"/>
+      <stop offset="100%" stop-color="#6a6a6a"/>
     </linearGradient>
 
-    <!-- Ember line: orange glow across the top edge -->
+    <!-- Ember: orange glow across the top edge -->
     <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#b03000" stop-opacity="0"/>
-      <stop offset="12%"  stop-color="#ff5500"/>
-      <stop offset="40%"  stop-color="#ff7200"/>
-      <stop offset="60%"  stop-color="#ff7200"/>
-      <stop offset="88%"  stop-color="#ff5500"/>
-      <stop offset="100%" stop-color="#b03000" stop-opacity="0"/>
+      <stop offset="0%"   stop-color="#bb2200" stop-opacity="0"/>
+      <stop offset="8%"   stop-color="#ff4400"/>
+      <stop offset="30%"  stop-color="#ff7700"/>
+      <stop offset="50%"  stop-color="#ff9900"/>
+      <stop offset="70%"  stop-color="#ff7700"/>
+      <stop offset="92%"  stop-color="#ff4400"/>
+      <stop offset="100%" stop-color="#bb2200" stop-opacity="0"/>
     </linearGradient>
 
-    <!-- Glow filter for the orange ember line -->
-    <filter id="glow-edge" x="-20%" y="-300%" width="140%" height="800%">
+    <!-- Glow filter: tight blur for the ember line -->
+    <filter id="glow-edge" x="-20%" y="-600%" width="140%" height="1400%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
@@ -46,57 +55,93 @@
       </feMerge>
     </filter>
 
-    <!-- Soft filter for floating heat particles -->
-    <filter id="glow-particle" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5"/>
+    <!-- Ambient glow: large soft halo spreading above the anvil -->
+    <filter id="glow-halo" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18"/>
     </filter>
   </defs>
 
   <!-- Background rounded square -->
-  <rect width="200" height="200" rx="42" fill="url(#bg)"/>
+  <rect width="200" height="200" rx="40" fill="url(#bg)"/>
 
-  <!-- === ANVIL BODY === -->
+  <!-- Ambient orange halo above work face (behind anvil body) -->
+  <ellipse cx="115" cy="74" rx="72" ry="22"
+           fill="#ff5500" opacity="0.32" filter="url(#glow-halo)"/>
 
-  <!-- Left foot -->
-  <rect x="40" y="144" width="46" height="18" rx="4" fill="url(#steel)"/>
-  <!-- Right foot -->
-  <rect x="114" y="144" width="46" height="18" rx="4" fill="url(#steel)"/>
+  <!-- =========================================================
+       ANVIL BODY — complete side-profile silhouette
+       Classic European style: left horn, wide flat face,
+       tapered waist, stable two-foot base.
+       Path clockwise from top-left of work face.
+       ========================================================= -->
 
-  <!-- Waist — trapezoid bridging body to feet -->
-  <path d="M52 128 L148 128 L138 144 L62 144 Z" fill="url(#steel)"/>
+  <!-- Main body block (below work face, including waist + feet) -->
+  <path d="
+    M 55,88
+    L 162,88
+    L 162,100
+    C 158,100 154,106 150,116
+    L 148,132
+    L 156,146
+    L 156,164
+    L 112,164
+    L 108,148
+    L 92,148
+    L 88,164
+    L 44,164
+    L 44,146
+    L 52,132
+    L 50,116
+    C 46,106 42,100 38,100
+    L 38,88
+    Z
+  " fill="url(#steel)"/>
 
-  <!-- Main body — tapers gently toward the waist -->
-  <path d="M36 95 L164 95 L164 110 L148 128 L52 128 L36 110 Z" fill="url(#steel)"/>
+  <!-- Horn: sweeping left arm -->
+  <path d="
+    M 38,88
+    L 55,88
+    L 55,100
+    C 46,100 40,100 38,100
+    C 34,100 16,102 16,98
+    C 16,93 30,82 38,88
+    Z
+  " fill="url(#horn-grad)"/>
 
-  <!-- Horn — tapered beak extending left -->
-  <path d="M36 95 L36 110 L14 102 Z" fill="url(#steel)"/>
+  <!-- Work face: flat top surface (slightly raised, brighter) -->
+  <rect x="55" y="78" width="107" height="10" rx="2" fill="url(#face)"/>
 
-  <!-- Work face — flat top surface, slightly lighter -->
-  <rect x="35" y="83" width="130" height="12" rx="3" fill="url(#face)"/>
+  <!-- Hardy hole: square socket near right of face -->
+  <rect x="148" y="80" width="11" height="8" rx="1.5"
+        fill="#111111" opacity="0.9"/>
 
-  <!-- Hardy hole — recessed square punch-out in the top-right -->
-  <rect x="147" y="85" width="11" height="9" rx="1.5" fill="#1e1e1e" opacity="0.85"/>
+  <!-- Left "step": subtle ledge where face meets horn -->
+  <rect x="38" y="88" width="17" height="6" rx="1"
+        fill="#6a6a6a" opacity="0.4"/>
 
-  <!-- Ground shadow beneath the anvil -->
-  <ellipse cx="100" cy="164" rx="62" ry="6" fill="#000" opacity="0.28"/>
+  <!-- Dark edge outline on body (depth) -->
+  <path d="
+    M 55,88 L 38,88
+    C 30,82 16,93 16,98
+    C 16,102 34,100 38,100
+    C 42,100 46,106 50,116
+    L 52,132 L 44,146 L 44,164
+    L 88,164 L 92,148 L 108,148
+    L 112,164 L 156,164 L 156,146
+    L 148,132 L 150,116
+    C 154,106 158,100 162,100
+    L 162,88 L 55,88
+  " fill="none" stroke="#1a1a1a" stroke-width="1.5" opacity="0.5"/>
 
-  <!-- === EMBER GLOW on top face edge === -->
-  <rect x="35" y="81" width="130" height="5" rx="2.5"
+  <!-- =========================================================
+       EMBER GLOW — hot orange line along the top edge
+       ========================================================= -->
+
+  <!-- Soft ambient orange above work face (radiated heat) -->
+  <rect x="45" y="66" width="122" height="14" rx="6"
+        fill="#ff5500" opacity="0.38" filter="url(#glow-halo)"/>
+
+  <!-- Crisp ember line on top edge of work face -->
+  <rect x="55" y="75" width="107" height="5" rx="2.5"
         fill="url(#ember)" filter="url(#glow-edge)"/>
-
-  <!-- === HEAT PARTICLES rising above the glow === -->
-  <!-- Rendered as blurred blobs — glow pass first, then hard center -->
-  <g filter="url(#glow-particle)" opacity="0.55">
-    <circle cx="68"  cy="70" r="4"   fill="#ff6a00"/>
-    <circle cx="85"  cy="58" r="3"   fill="#ff8800"/>
-    <circle cx="102" cy="50" r="3.5" fill="#ffa000"/>
-    <circle cx="122" cy="62" r="3.5" fill="#ff7500"/>
-    <circle cx="140" cy="54" r="2.5" fill="#ff8800"/>
-    <circle cx="57"  cy="78" r="2.5" fill="#ff5c00"/>
-    <circle cx="152" cy="72" r="2"   fill="#ff6a00"/>
-  </g>
-  <!-- Hard bright centers -->
-  <circle cx="85"  cy="58" r="1.2" fill="#ffcc88" opacity="0.6"/>
-  <circle cx="102" cy="50" r="1.5" fill="#ffcc88" opacity="0.55"/>
-  <circle cx="122" cy="62" r="1.2" fill="#ffcc88" opacity="0.5"/>
 </svg>

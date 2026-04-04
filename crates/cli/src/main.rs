@@ -29,10 +29,6 @@ enum Commands {
     Eval(commands::eval::EvalArgs),
     /// Manage authentication credentials
     Auth(commands::auth::AuthArgs),
-    /// GitHub webhook integration — receive @mentions and create agent tasks
-    Webhook(commands::webhook::WebhookArgs),
-    /// Paperclip control-plane integration (heartbeat, whoami)
-    Paperclip(commands::paperclip::PaperclipArgs),
 }
 
 #[tokio::main]
@@ -52,7 +48,5 @@ async fn main() -> anyhow::Result<()> {
         Commands::Memory(args) => commands::memory::execute(args).await,
         Commands::Eval(args) => commands::eval::execute(args).await,
         Commands::Auth(args) => commands::auth::execute(args).await,
-        Commands::Webhook(args) => commands::webhook::execute(args).await,
-        Commands::Paperclip(args) => commands::paperclip::execute(args).await,
     }
 }

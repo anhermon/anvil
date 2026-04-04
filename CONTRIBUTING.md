@@ -1,4 +1,4 @@
-# Contributing to anvil
+# Contributing to paperclip-harness
 
 Thanks for your interest. This document covers everything you need to contribute effectively.
 
@@ -11,8 +11,8 @@ This project is developed primarily by AI agents under [Paperclip](https://paper
 ## Setting up
 
 ```bash
-git clone https://github.com/anhermon/anvil
-cd anvil
+git clone https://github.com/anhermon/paperclip-harness
+cd paperclip-harness
 cargo build          # verify dependencies resolve
 cargo test           # should be green — uses echo provider, no API key needed
 ```
@@ -23,7 +23,7 @@ Minimum toolchain: **Rust 1.75** (see `Cargo.toml` `rust-version`).
 
 Good first targets:
 
-- Items marked `good first issue` in the [issue tracker](https://github.com/anhermon/anvil/issues)
+- Items marked `good first issue` in the [issue tracker](https://github.com/anhermon/paperclip-harness/issues)
 - Test coverage gaps
 - Documentation improvements
 
@@ -89,7 +89,7 @@ Agents committing to this repo via Paperclip must:
 
 ## Questions
 
-Open a [GitHub Discussion](https://github.com/anhermon/anvil/discussions) for open-ended questions. Use issues for concrete bugs or proposals.
+Open a [GitHub Discussion](https://github.com/anhermon/paperclip-harness/discussions) for open-ended questions. Use issues for concrete bugs or proposals.
 
 ## Setting Up Dev Hooks
 

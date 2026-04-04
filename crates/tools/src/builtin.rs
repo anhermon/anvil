@@ -104,7 +104,9 @@ impl ToolHandler for ReadFileTool {
 /// Security: only commands whose first token appears in ALLOWED_COMMANDS are permitted.
 pub struct BashExecTool;
 
-const ALLOWED_COMMANDS: &[&str] = &["cargo", "git", "rustfmt", "rustup"];
+const ALLOWED_COMMANDS: &[&str] = &[
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
+];
 
 #[async_trait]
 impl ToolHandler for BashExecTool {
@@ -112,7 +114,7 @@ impl ToolHandler for BashExecTool {
         ToolSchema {
             name: "bash_exec".into(),
             description: "Execute a shell command and return stdout+stderr. \
-                Only allowlisted commands are permitted: cargo, git, rustfmt, rustup. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which. \
                 Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
@@ -245,13 +247,13 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
-    async fn bash_exec_git_version_allowed() {
+    async fn bash_exec_echo() {
         let tool = BashExecTool;
-        let out = tool.call(json!({"command": "git --version"})).await;
+        let out = tool.call(json!({"command": "echo hello"})).await;
         assert!(!out.is_error, "unexpected error: {}", out.content);
         assert!(
-            out.content.contains("git"),
-            "expected git version in: {}",
+            out.content.contains("hello"),
+            "expected hello in: {}",
             out.content
         );
     }
@@ -282,9 +284,9 @@ mod tests {
     #[tokio::test]
     async fn bash_exec_nonzero_exit_is_error() {
         let tool = BashExecTool;
-        // cargo with an unknown subcommand exits non-zero
+        // ls on a non-existent path exits non-zero; ls is in the allowlist
         let out = tool
-            .call(json!({"command": "cargo this-subcommand-does-not-exist-xyz"}))
+            .call(json!({"command": "ls /this_path_does_not_exist_xyz_12345"}))
             .await;
         assert!(out.is_error, "expected error for non-zero exit");
     }
