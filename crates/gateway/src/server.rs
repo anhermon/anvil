@@ -150,7 +150,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 continue;
                             }
                         };
-                        if socket.send(WsMessage::Text(json.into())).await.is_err() {
+                        if socket.send(WsMessage::Text(json)).await.is_err() {
                             break; // client disconnected
                         }
                     }
@@ -169,7 +169,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 debug!("received command: {cmd:?}");
                                 if cmd == ControlCommand::Ping {
                                     let pong = serde_json::json!({ "kind": "pong" }).to_string();
-                                    let _ = socket.send(WsMessage::Text(pong.into())).await;
+                                    let _ = socket.send(WsMessage::Text(pong)).await;
                                 } else {
                                     let _ = state.cmd_tx.send(cmd).await;
                                 }
@@ -235,7 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ws_event_delivery() {
-        use futures::{SinkExt, StreamExt};
+        use futures::StreamExt;
         use tokio_tungstenite::connect_async;
 
         let handle = start_test_gateway().await;
@@ -282,7 +282,7 @@ mod tests {
 
         let ping_payload = serde_json::json!({ "cmd": "ping" }).to_string();
         ws.send(tokio_tungstenite::tungstenite::Message::Text(
-            ping_payload.into(),
+            ping_payload,
         ))
         .await
         .expect("send");
@@ -301,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ws_control_command_forwarded() {
-        use futures::{SinkExt, StreamExt as _};
+        use futures::SinkExt;
         use tokio_tungstenite::connect_async;
 
         let mut handle = start_test_gateway().await;
@@ -311,7 +311,7 @@ mod tests {
 
         let cmd_payload = serde_json::json!({ "cmd": "interrupt" }).to_string();
         ws.send(tokio_tungstenite::tungstenite::Message::Text(
-            cmd_payload.into(),
+            cmd_payload,
         ))
         .await
         .expect("send");
