@@ -5,13 +5,13 @@ use crate::{
     event::{AgentEvent, ControlCommand},
 };
 use axum::{
-    Router,
     extract::{
-        State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
+        State, WebSocketUpgrade,
     },
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{
