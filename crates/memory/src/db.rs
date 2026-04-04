@@ -74,7 +74,7 @@ impl MemoryDb {
         .await?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS evolution_records (
+            r#"CREATE TABLE IF NOT EXISTS evolution_log (
                 id             TEXT PRIMARY KEY NOT NULL,
                 session_id     TEXT NOT NULL,
                 prompt_score   REAL NOT NULL,
