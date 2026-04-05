@@ -67,7 +67,11 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
         }
         _ => {
             let api_key = config.resolved_api_key().ok_or_else(|| {
-                anyhow::anyhow!("ANTHROPIC_API_KEY not set — pass via env or config")
+                let base = "ANTHROPIC_API_KEY not set — pass via env or config";
+                match super::provider_fallback_hint(&backend) {
+                    Some(hint) => anyhow::anyhow!("{base}\n{hint}"),
+                    None => anyhow::anyhow!("{base}"),
+                }
             })?;
             Arc::new(ClaudeProvider::new(
                 api_key,
@@ -98,7 +102,12 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
             .unwrap_or_else(|| format!("case {}", idx + 1));
 
         let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone());
-        let session = agent.run(&case.goal).await?;
+        let session = agent.run(&case.goal).await.map_err(|e| {
+            match super::provider_fallback_hint(&backend) {
+                Some(hint) => anyhow::anyhow!("{e}\n{hint}"),
+                None => anyhow::anyhow!("{e}"),
+            }
+        })?;
 
         let response = session
             .messages

@@ -121,7 +121,10 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         }
         _ => Arc::new(
             ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
-                .map_err(|e| anyhow::anyhow!("{}", e))?,
+                .map_err(|e| match super::provider_fallback_hint(&backend) {
+                    Some(hint) => anyhow::anyhow!("{e}\n{hint}"),
+                    None => anyhow::anyhow!("{e}"),
+                })?,
         ),
     };
 
@@ -143,7 +146,12 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         ui::print_session_header("stream", &config.provider.model, &backend);
 
         println!("\n{}", "-".repeat(60));
-        let mut token_stream = provider.stream(&msgs).await?;
+        let mut token_stream = provider.stream(&msgs).await.map_err(|e| {
+            match super::provider_fallback_hint(&backend) {
+                Some(hint) => anyhow::anyhow!("{e}\n{hint}"),
+                None => anyhow::anyhow!("{e}"),
+            }
+        })?;
         let mut full_text = String::new();
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
@@ -192,7 +200,12 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         };
 
         let t0 = Instant::now();
-        let session = agent.run_with_options(&args.goal, opts).await?;
+        let session = agent.run_with_options(&args.goal, opts).await.map_err(|e| {
+            match super::provider_fallback_hint(&backend) {
+                Some(hint) => anyhow::anyhow!("{e}\n{hint}"),
+                None => anyhow::anyhow!("{e}"),
+            }
+        })?;
         let elapsed_ms = t0.elapsed().as_millis() as u64;
 
         if let Some(msg) = session.messages.last() {
