@@ -17,6 +17,16 @@ pub struct ClaudeCodeProvider {
     model: String,
 }
 
+/// Returns a hint suggesting the `claude` provider as a fallback, but only when
+/// `ANTHROPIC_API_KEY` is not already set in the environment.
+fn fallback_hint() -> String {
+    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        String::new()
+    } else {
+        "\nTip: try --provider claude with ANTHROPIC_API_KEY set".to_string()
+    }
+}
+
 impl ClaudeCodeProvider {
     pub fn new(model: impl Into<String>) -> Self {
         Self {
@@ -81,7 +91,8 @@ impl ClaudeCodeProvider {
             .map_err(|e| {
                 HarnessError::Provider(format!(
                     "failed to spawn claude binary: {e}. \
-                     Ensure the `claude` CLI is installed and available on PATH."
+                     Ensure the `claude` CLI is installed and available on PATH.{}",
+                    fallback_hint()
                 ))
             })?;
 
@@ -89,8 +100,9 @@ impl ClaudeCodeProvider {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             return Err(HarnessError::Provider(format!(
-                "claude subprocess exited with {}: stderr={stderr} stdout={stdout}",
-                output.status
+                "claude subprocess exited with {}: stderr={stderr} stdout={stdout}{}",
+                output.status,
+                fallback_hint()
             )));
         }
 
@@ -172,13 +184,19 @@ impl Provider for ClaudeCodeProvider {
             ])
             .output()
             .await
-            .map_err(|e| HarnessError::Provider(format!("failed to spawn claude binary: {e}")))?;
+            .map_err(|e| {
+                HarnessError::Provider(format!(
+                    "failed to spawn claude binary: {e}{}",
+                    fallback_hint()
+                ))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             return Err(HarnessError::Provider(format!(
-                "claude subprocess (stream) exited with {}: {stderr}",
-                output.status
+                "claude subprocess (stream) exited with {}: {stderr}{}",
+                output.status,
+                fallback_hint()
             )));
         }
 
@@ -283,5 +301,22 @@ mod tests {
     fn extract_stream_text_ignores_non_text_events() {
         let v = serde_json::json!({"type": "message_start", "message": {}});
         assert_eq!(extract_stream_text(&v), None);
+    }
+
+    #[test]
+    fn fallback_hint_shown_when_api_key_unset() {
+        // Ensure the key is not set for this test.
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let hint = fallback_hint();
+        assert!(hint.contains("--provider claude"));
+        assert!(hint.contains("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn fallback_hint_hidden_when_api_key_set() {
+        std::env::set_var("ANTHROPIC_API_KEY", "sk-test-key");
+        let hint = fallback_hint();
+        assert!(hint.is_empty());
+        std::env::remove_var("ANTHROPIC_API_KEY");
     }
 }
