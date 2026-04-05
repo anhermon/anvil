@@ -20,7 +20,7 @@ The binary is `anvil`. Configuration lives at `~/.paperclip/harness/config.toml`
 
 ---
 
-## Workspace architecture (4 crates)
+## Workspace architecture (4 crates (+ 3 on feature branches))
 
 ```
 crates/
@@ -28,12 +28,19 @@ crates/
 ├── tools/     ToolRegistry, ToolHandler trait, JSON Schema validation, built-in tools
 ├── memory/    SQLite + FTS5 episodic memory (MemoryDb), Episode types
 └── cli/       clap CLI binary: Agent loop, subcommands (run, config, memory)
+
+# On feature branches (not yet merged to main):
+# ├── evolution/   5-gate phantom evolution engine (feature/evolution-engine)
+# ├── github/      GitHub mentions integration (feature/anga-308-github-mentions)
+# └── paperclip/   Paperclip control-plane adapter (feature/anga-70-phase7-paperclip-adapter)
 ```
 
 Planned crates (do not add without a tracking issue): `task`, `orchestrator`, `ui`.
 
 Dependency direction is strict: `cli` → `core + tools + memory`. `tools` and `memory` must not
 depend on each other. `core` has no workspace-crate dependencies.
+
+The `assets/` directory contains SVG brand assets (`anvil.svg`, `anvil-lockup.svg`).
 
 ---
 
@@ -167,7 +174,7 @@ Co-Authored-By: Paperclip <noreply@paperclip.ing>
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`
-Scopes: `core`, `tools`, `memory`, `cli`, `task`, `orchestrator`, `ui`, `deps`
+Scopes: `core`, `tools`, `memory`, `cli`, `task`, `orchestrator`, `ui`, `deps`, `evolution`, `github`, `paperclip`
 
 AI-agent commits **must** include the `Co-Authored-By` trailer.
 
@@ -198,8 +205,7 @@ summarizing what was done. The CTO will review and merge.
 
 ## Roadmap context
 
-The project is in **Phase 3** (tool call loop, streaming, eval harness, task DAG). Phases 4–6
-(sub-agent orchestration, self-evolution, control plane) are planned but not yet implemented.
+The project has completed through **Phase 5** (evolution engine) and **Phase 6** (Paperclip adapter) on feature branches, pending merge. Phase 4 (sub-agent orchestration) is planned.
 Do not add stubs or placeholder crates for unimplemented phases without a tracking issue.
 
 ---
