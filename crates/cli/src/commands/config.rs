@@ -42,7 +42,7 @@ async fn check_connectivity(config: &Config) {
     let backend = &config.provider.backend;
 
     let provider: Result<Arc<dyn Provider>, String> = match backend.as_str() {
-        "echo" => Ok(Arc::new(EchoProvider)),
+        "echo" => Ok(Arc::new(EchoProvider::new())),
         "claude-code" | "cc" => Ok(Arc::new(ClaudeCodeProvider::new(&config.provider.model))),
         _ => ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
             .map(|p| Arc::new(p) as Arc<dyn Provider>)
