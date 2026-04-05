@@ -79,13 +79,17 @@ jobs:
           if [ -f coverage/tarpaulin-report.json ]; then
             echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
             python3 -c "
-          import json, sys
+          import json
           data = json.load(open('coverage/tarpaulin-report.json'))
-          covered = sum(1 for f in data.get('files', []) for l in f.get('traces', []) if l.get('stats', {}).get('Line', 0) > 0) if 'files' in data else 0
-          total_covered = data.get('covered_lines', 0) if 'covered_lines' in data else 0
-          total_coverable = data.get('coverable_lines', 0) if 'coverable_lines' in data else 0
-          pct = (total_covered / total_coverable * 100) if total_coverable > 0 else 0
-          print(f'Coverage: {total_covered}/{total_coverable} lines ({pct:.1f}%)')
+          files = data if isinstance(data, list) else data.get('files', [])
+          total = 0; covered = 0
+          for f in files:
+              for t in f.get('traces', []):
+                  total += 1
+                  if t.get('stats', {}).get('Line', 0) > 0:
+                      covered += 1
+          pct = (covered / total * 100) if total > 0 else 0
+          print(f'Coverage: {covered}/{total} lines ({pct:.1f}%)')
           " | tee -a "$GITHUB_STEP_SUMMARY"
           fi
       - name: Upload coverage artifact
