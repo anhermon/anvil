@@ -1,4 +1,4 @@
-# Contributing to paperclip-harness
+# Contributing to Anvil
 
 Thanks for your interest. This document covers everything you need to contribute effectively.
 
@@ -11,8 +11,8 @@ This project is developed primarily by AI agents under [Paperclip](https://paper
 ## Setting up
 
 ```bash
-git clone https://github.com/anhermon/paperclip-harness
-cd paperclip-harness
+git clone https://github.com/anhermon/anvil
+cd anvil
 cargo build          # verify dependencies resolve
 cargo test           # should be green — uses echo provider, no API key needed
 ```
@@ -23,7 +23,7 @@ Minimum toolchain: **Rust 1.75** (see `Cargo.toml` `rust-version`).
 
 Good first targets:
 
-- Items marked `good first issue` in the [issue tracker](https://github.com/anhermon/paperclip-harness/issues)
+- Items marked `good first issue` in the [issue tracker](https://github.com/anhermon/anvil/issues)
 - Test coverage gaps
 - Documentation improvements
 
@@ -58,19 +58,21 @@ Co-Authored-By: <name> <email>   ← required for AI-agent commits
 
 Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`
 
-Scopes: `core`, `tools`, `memory`, `cli`, `task`, `orchestrator`, `ui`, `deps`
+Scopes: `core`, `tools`, `memory`, `cli`, `gateway`, `tui`, `paperclip`, `github`, `evolution`, `deps`
 
 ## Branching model
 
 ```
-master          ← stable, protected
-  feat/*        ← new features
-  fix/*         ← bug fixes
-  docs/*        ← docs only
-  chore/*       ← deps / CI / tooling
+main              ← stable, protected — PRs from dev only, requires human approval
+  dev             ← integration — PRs from feature/* only (no direct commits)
+    feature/*     ← new features
+    fix/*         ← bug fixes
+    docs/*        ← docs only
+    chore/*       ← deps / CI / tooling
 ```
 
-All branches cut from `master`. Squash-merge preferred for feat/* and fix/*; merge commit for larger milestones.
+All feature branches cut from `dev`. Open a PR to `dev`; `dev` → `main` requires board approval.
+Squash-merge preferred for feature/* and fix/*; merge commit for larger milestones.
 
 ## Testing philosophy
 
@@ -85,11 +87,11 @@ Agents committing to this repo via Paperclip must:
 
 1. Include `Co-Authored-By: Paperclip <noreply@paperclip.ing>` in every commit.
 2. Reference the Paperclip issue ID in the PR description (e.g. `Closes ANGA-70`).
-3. Not push directly to `master` — always via a reviewed PR.
+3. Not push directly to `main` or `dev` — always via a reviewed PR.
 
 ## Questions
 
-Open a [GitHub Discussion](https://github.com/anhermon/paperclip-harness/discussions) for open-ended questions. Use issues for concrete bugs or proposals.
+Open a [GitHub Discussion](https://github.com/anhermon/anvil/discussions) for open-ended questions. Use issues for concrete bugs or proposals.
 
 ## Setting Up Dev Hooks
 
