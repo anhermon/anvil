@@ -202,3 +202,116 @@ pub struct CreateIssueRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_status_deserializes_snake_case() {
+        let status: IssueStatus = serde_json::from_str("\"in_progress\"").unwrap();
+        assert_eq!(status, IssueStatus::InProgress);
+    }
+
+    #[test]
+    fn issue_status_unknown_variant_handled() {
+        let status: IssueStatus = serde_json::from_str("\"some_future_status\"").unwrap();
+        assert_eq!(status, IssueStatus::Unknown);
+    }
+
+    #[test]
+    fn issue_status_display() {
+        assert_eq!(IssueStatus::InProgress.to_string(), "in_progress");
+        assert_eq!(IssueStatus::Done.to_string(), "done");
+        assert_eq!(IssueStatus::Blocked.to_string(), "blocked");
+        assert_eq!(IssueStatus::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn issue_priority_ordering() {
+        assert!(IssuePriority::Critical < IssuePriority::High);
+        assert!(IssuePriority::High < IssuePriority::Medium);
+        assert!(IssuePriority::Medium < IssuePriority::Low);
+    }
+
+    #[test]
+    fn issue_priority_unknown_variant() {
+        let priority: IssuePriority = serde_json::from_str("\"urgent\"").unwrap();
+        assert_eq!(priority, IssuePriority::Unknown);
+    }
+
+    #[test]
+    fn agent_identity_deserialization() {
+        let json = serde_json::json!({
+            "id": "abc-123",
+            "companyId": "co-1",
+            "name": "Test Agent",
+            "role": "engineer",
+            "status": "running",
+            "budgetMonthlyCents": 1000,
+            "spentMonthlyCents": 500,
+            "urlKey": "test-agent",
+            "chainOfCommand": [
+                {"id": "mgr-1", "name": "Manager", "role": "cto"}
+            ]
+        });
+        let agent: AgentIdentity = serde_json::from_value(json).unwrap();
+        assert_eq!(agent.id, "abc-123");
+        assert_eq!(agent.chain_of_command.len(), 1);
+        assert_eq!(agent.chain_of_command[0].role, "cto");
+    }
+
+    #[test]
+    fn inbox_item_optional_fields_default() {
+        let json = serde_json::json!({
+            "id": "issue-1",
+            "identifier": "TEST-1",
+            "title": "Test issue",
+            "status": "todo",
+            "priority": "high",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        });
+        let item: InboxItem = serde_json::from_value(json).unwrap();
+        assert!(item.project_id.is_none());
+        assert!(item.goal_id.is_none());
+        assert!(item.parent_id.is_none());
+        assert!(item.active_run.is_none());
+    }
+
+    #[test]
+    fn update_issue_request_skips_none_fields() {
+        let req = UpdateIssueRequest {
+            status: Some("done".to_string()),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("status").is_some());
+        assert!(json.get("comment").is_none());
+        assert!(json.get("priority").is_none());
+    }
+
+    #[test]
+    fn checkout_request_serializes_camel_case() {
+        let req = CheckoutRequest {
+            agent_id: "agent-1".to_string(),
+            expected_statuses: vec!["todo".to_string(), "in_progress".to_string()],
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("agentId").is_some());
+        assert!(json.get("expectedStatuses").is_some());
+    }
+
+    #[test]
+    fn comment_deserialization() {
+        let json = serde_json::json!({
+            "id": "comment-1",
+            "issueId": "issue-1",
+            "body": "Hello world",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let comment: Comment = serde_json::from_value(json).unwrap();
+        assert_eq!(comment.body, "Hello world");
+        assert!(comment.author_agent_id.is_none());
+        assert!(comment.author_user_id.is_none());
+    }
+}

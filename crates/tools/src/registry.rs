@@ -113,5 +113,48 @@ mod tests {
         let registry = ToolRegistry::new();
         let out = registry.call("nonexistent", serde_json::json!({})).await;
         assert!(out.is_error);
+        assert!(out.content.contains("tool not found"));
+    }
+
+    #[tokio::test]
+    async fn registry_validates_input_before_calling() {
+        let registry = ToolRegistry::new();
+        registry.register(UpperCase);
+        // Missing required "text" field
+        let out = registry.call("uppercase", serde_json::json!({})).await;
+        assert!(out.is_error);
+        assert!(out.content.contains("missing required field"));
+    }
+
+    #[tokio::test]
+    async fn registry_overwrite_replaces_handler() {
+        let registry = ToolRegistry::new();
+        registry.register(UpperCase);
+        assert_eq!(registry.len(), 1);
+
+        // Register another handler with the same name — should overwrite
+        registry.register(UpperCase);
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn registry_schemas_lists_all_tools() {
+        let registry = ToolRegistry::new();
+        assert!(registry.is_empty());
+        registry.register(UpperCase);
+        let schemas = registry.schemas();
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(schemas[0].name, "uppercase");
+    }
+
+    #[test]
+    fn tool_output_constructors() {
+        let ok = ToolOutput::ok("success");
+        assert_eq!(ok.content, "success");
+        assert!(!ok.is_error);
+
+        let err = ToolOutput::err("failure");
+        assert_eq!(err.content, "failure");
+        assert!(err.is_error);
     }
 }
