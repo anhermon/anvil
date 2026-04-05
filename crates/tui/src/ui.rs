@@ -46,8 +46,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(outer[1]);
 
-    draw_event_list(f, app, content[0].into());
-    draw_detail_panel(f, app, content[1].into());
+    draw_event_list(f, app, content[0]);
+    draw_detail_panel(f, app, content[1]);
 
     // Status bar
     let status_text = format!(" {} events | {} ", app.events.len(), app.gateway_status);

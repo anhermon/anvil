@@ -48,6 +48,7 @@ pub enum AgentEvent {
 
 impl AgentEvent {
     /// Short label for display in the event list.
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             Self::TurnStart { .. } => "TURN_START",
@@ -111,7 +112,8 @@ impl AgentEvent {
 
 /// Top-level event type for the app's main loop.
 pub enum AppEvent {
-    /// Key press from the terminal
+    /// Key press from the terminal (reserved for future channel-based input)
+    #[allow(dead_code)]
     Key(KeyEvent),
     /// New agent event received from gateway
     Agent(AgentEvent),

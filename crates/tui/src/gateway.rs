@@ -37,7 +37,7 @@ pub async fn run_gateway_client(url: String, tx: mpsc::UnboundedSender<AppEvent>
                 while let Some(msg_result) = read.next().await {
                     match msg_result {
                         Ok(msg) => {
-                            if let Some(text) = msg.into_text().ok() {
+                            if let Ok(text) = msg.into_text() {
                                 match serde_json::from_str::<AgentEvent>(&text) {
                                     Ok(event) => {
                                         if tx.send(AppEvent::Agent(event)).is_err() {
