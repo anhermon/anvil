@@ -60,6 +60,39 @@ impl ClaudeCodeProvider {
         parts.join("\n\n")
     }
 
+    /// Parse the JSON response from `claude --output-format json`.
+    ///
+    /// Returns `Ok(text)` on success, or `Err` with a clean message if the
+    /// response indicates an error (`is_error: true`).
+    fn parse_json_response(raw: &str) -> Result<String> {
+        let v: serde_json::Value = serde_json::from_str(raw.trim()).map_err(|e| {
+            HarnessError::Provider(format!(
+                "failed to parse claude JSON output: {e}. raw: {raw}"
+            ))
+        })?;
+
+        // Check for error responses first.
+        if v.get("is_error")
+            .and_then(|f| f.as_bool())
+            .unwrap_or(false)
+        {
+            let result = v
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown error");
+            return Err(HarnessError::Provider(format!("cc provider — {result}")));
+        }
+
+        v.get("result")
+            .and_then(|r| r.as_str())
+            .ok_or_else(|| {
+                HarnessError::Provider(format!(
+                    "claude JSON response missing `result` field. raw: {raw}"
+                ))
+            })
+            .map(|s| s.to_string())
+    }
+
     /// Run `claude -p <prompt> --output-format json --model <model>`.
     ///
     /// Returns the text extracted from the `result` field of the JSON response.
@@ -95,26 +128,7 @@ impl ClaudeCodeProvider {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        // The JSON response shape from `claude --output-format json`:
-        // {"type":"result","subtype":"success","result":"<text>","session_id":"...","cost_usd":0.001}
-        let v: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            HarnessError::Provider(format!(
-                "failed to parse claude JSON output: {e}. raw: {stdout}"
-            ))
-        })?;
-
-        // Extract `result` field (the text response).
-        let text = v
-            .get("result")
-            .and_then(|r| r.as_str())
-            .ok_or_else(|| {
-                HarnessError::Provider(format!(
-                    "claude JSON response missing `result` field. raw: {stdout}"
-                ))
-            })?
-            .to_string();
-
-        Ok(text)
+        Self::parse_json_response(&stdout)
     }
 }
 
@@ -209,6 +223,20 @@ impl Provider for ClaudeCodeProvider {
             for line in stdout.lines() {
                 let line = line.trim();
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    // Check for error responses before treating as success.
+                    if v.get("is_error")
+                        .and_then(|f| f.as_bool())
+                        .unwrap_or(false)
+                    {
+                        let result = v
+                            .get("result")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("unknown error");
+                        return Err(HarnessError::Provider(format!(
+                            "cc provider — {result}"
+                        )));
+                    }
+
                     if let Some(result_text) = v.get("result").and_then(|r| r.as_str()) {
                         if !result_text.is_empty() {
                             chunks.push(Ok(StreamChunk {
@@ -283,5 +311,34 @@ mod tests {
     fn extract_stream_text_ignores_non_text_events() {
         let v = serde_json::json!({"type": "message_start", "message": {}});
         assert_eq!(extract_stream_text(&v), None);
+    }
+
+    #[test]
+    fn parse_json_response_success() {
+        let raw = r#"{"type":"result","subtype":"success","result":"Hello!","session_id":"abc","cost_usd":0.001}"#;
+        let text = ClaudeCodeProvider::parse_json_response(raw).unwrap();
+        assert_eq!(text, "Hello!");
+    }
+
+    #[test]
+    fn parse_json_response_error() {
+        let raw = r#"{"type":"result","subtype":"error_response","is_error":true,"result":"Your account does not have access to claude-sonnet-4-5","session_id":"abc","cost_usd":0.0}"#;
+        let err = ClaudeCodeProvider::parse_json_response(raw).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("cc provider"),
+            "expected 'cc provider' prefix, got: {msg}"
+        );
+        assert!(
+            msg.contains("Your account does not have access"),
+            "expected error detail, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_json_response_missing_result() {
+        let raw = r#"{"type":"result","subtype":"success"}"#;
+        let err = ClaudeCodeProvider::parse_json_response(raw).unwrap_err();
+        assert!(err.to_string().contains("missing `result` field"));
     }
 }
