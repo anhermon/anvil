@@ -54,6 +54,36 @@ jobs:
       - name: test
         run: cargo test --workspace
 
+  benchmark:
+    name: Benchmark
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-bench-
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run benchmarks
+        run: bash benchmarks/run.sh
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
