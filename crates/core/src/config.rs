@@ -104,3 +104,56 @@ fn dirs_home() -> Option<PathBuf> {
     #[cfg(not(windows))]
     return std::env::var("HOME").ok().map(PathBuf::from);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn default_config_has_sane_values() {
+        let cfg = Config::default();
+        assert_eq!(cfg.provider.backend, "claude-code");
+        assert_eq!(cfg.agent.name, "anvil");
+        assert_eq!(cfg.agent.max_iterations, 50);
+        assert!(cfg.memory.max_context_episodes > 0);
+    }
+
+    #[test]
+    fn resolved_api_key_prefers_config_value() {
+        let mut cfg = Config::default();
+        cfg.provider.api_key = Some("from-config".into());
+        cfg.provider.backend = "claude".into();
+        assert_eq!(cfg.resolved_api_key(), Some("from-config".into()));
+    }
+
+    #[test]
+    fn resolved_api_key_falls_back_to_env_for_claude() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let mut cfg = Config::default();
+        cfg.provider.api_key = None;
+        cfg.provider.backend = "claude".into();
+        std::env::set_var("ANTHROPIC_API_KEY", "env-key");
+        assert_eq!(cfg.resolved_api_key(), Some("env-key".into()));
+        std::env::remove_var("ANTHROPIC_API_KEY");
+    }
+
+    #[test]
+    fn resolved_api_key_returns_none_for_unknown_backend() {
+        let mut cfg = Config::default();
+        cfg.provider.api_key = None;
+        cfg.provider.backend = "unknown".into();
+        assert_eq!(cfg.resolved_api_key(), None);
+    }
+
+    #[test]
+    fn config_roundtrips_through_toml() {
+        let cfg = Config::default();
+        let serialized = toml::to_string(&cfg).expect("serialize");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialize");
+        assert_eq!(deserialized.provider.backend, cfg.provider.backend);
+        assert_eq!(deserialized.agent.name, cfg.agent.name);
+    }
+}

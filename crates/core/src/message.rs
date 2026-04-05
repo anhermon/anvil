@@ -107,3 +107,69 @@ pub struct TurnResponse {
     pub usage: Usage,
     pub model: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_message_constructors() {
+        let sys = Message::system("hello");
+        assert_eq!(sys.role, Role::System);
+        assert_eq!(sys.text(), Some("hello"));
+
+        let usr = Message::user("question");
+        assert_eq!(usr.role, Role::User);
+        assert_eq!(usr.text(), Some("question"));
+
+        let asst = Message::assistant("answer");
+        assert_eq!(asst.role, Role::Assistant);
+        assert_eq!(asst.text(), Some("answer"));
+    }
+
+    #[test]
+    fn text_extracts_from_blocks() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::ToolUse {
+                    id: "t1".into(),
+                    name: "bash".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::Text {
+                    text: "result text".into(),
+                },
+            ]),
+        };
+        assert_eq!(msg.text(), Some("result text"));
+    }
+
+    #[test]
+    fn text_returns_none_for_blocks_without_text() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: "t1".into(),
+                content: "output".into(),
+            }]),
+        };
+        assert_eq!(msg.text(), None);
+    }
+
+    #[test]
+    fn role_serde_roundtrip() {
+        let json = serde_json::to_string(&Role::System).unwrap();
+        assert_eq!(json, "\"system\"");
+        let back: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Role::System);
+    }
+
+    #[test]
+    fn message_serde_roundtrip() {
+        let msg = Message::user("hello");
+        let json = serde_json::to_string(&msg).unwrap();
+        let back: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.text(), Some("hello"));
+    }
+}
