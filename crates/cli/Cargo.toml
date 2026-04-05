@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "harness_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "anvil"
 path = "src/main.rs"

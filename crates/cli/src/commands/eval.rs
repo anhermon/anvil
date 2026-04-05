@@ -63,7 +63,7 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
-            Arc::new(harness_core::provider::EchoProvider)
+            Arc::new(harness_core::provider::EchoProvider::new())
         }
         _ => {
             let api_key = config.resolved_api_key().ok_or_else(|| {

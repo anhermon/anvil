@@ -249,6 +249,39 @@ cargo fmt --check
 cargo audit
 ```
 
+### Testing with the echo provider
+
+The `EchoProvider` enables full end-to-end testing without any LLM API key or credits:
+
+```bash
+# Run the agent loop with the echo provider (mirrors input back)
+anvil run --provider echo --goal "test task"
+
+# Run the full integration test suite (uses echo provider, no API key needed)
+cargo test -p harness-cli --test echo_integration
+```
+
+**Scripted tool calls:** For tests that need deterministic tool-call behaviour,
+use `EchoProvider::scripted()` to queue tool calls that are emitted in order
+before falling back to the normal echo response:
+
+```rust
+use harness_core::provider::{EchoProvider, ScriptedToolCall};
+
+let provider = EchoProvider::scripted(vec![
+    ScriptedToolCall {
+        id: "call-1".to_string(),
+        name: "echo".to_string(),
+        input: serde_json::json!({"message": "ping"}),
+    },
+]);
+// First provider call returns ToolUse; subsequent calls echo normally.
+```
+
+Integration tests live in `crates/cli/tests/echo_integration.rs` and cover:
+plain echo, scripted tool dispatch, max-iteration caps, memory persistence,
+and named-session continuity.
+
 ### Commit style
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
