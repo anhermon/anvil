@@ -66,4 +66,50 @@ mod tests {
             .is_ok());
         assert!(schema.validate(&serde_json::json!({})).is_err());
     }
+
+    #[test]
+    fn simple_schema_builds_correct_json_structure() {
+        let schema = ToolSchema::simple("test_tool", "A test tool", &["arg1", "arg2"]);
+        assert_eq!(schema.name, "test_tool");
+        assert_eq!(schema.description, "A test tool");
+
+        let input_schema = &schema.input_schema;
+        assert_eq!(input_schema["type"], "object");
+
+        let props = input_schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("arg1"));
+        assert!(props.contains_key("arg2"));
+
+        let required = input_schema["required"].as_array().unwrap();
+        assert_eq!(required.len(), 2);
+    }
+
+    #[test]
+    fn to_def_converts_correctly() {
+        let schema = ToolSchema::simple("bash", "Run command", &["command"]);
+        let def = schema.to_def();
+        assert_eq!(def.name, "bash");
+        assert_eq!(def.description, "Run command");
+        assert_eq!(def.input_schema, schema.input_schema);
+    }
+
+    #[test]
+    fn validate_allows_extra_fields() {
+        let schema = ToolSchema::simple("tool", "desc", &["required_field"]);
+        let input = serde_json::json!({"required_field": "v", "extra": "ignored"});
+        assert!(schema.validate(&input).is_ok());
+    }
+
+    #[test]
+    fn validate_with_no_required_fields() {
+        let schema = ToolSchema::simple("tool", "desc", &[]);
+        assert!(schema.validate(&serde_json::json!({})).is_ok());
+    }
+
+    #[test]
+    fn validate_error_message_includes_field_name() {
+        let schema = ToolSchema::simple("tool", "desc", &["missing_field"]);
+        let err = schema.validate(&serde_json::json!({})).unwrap_err();
+        assert!(err.contains("missing_field"));
+    }
 }

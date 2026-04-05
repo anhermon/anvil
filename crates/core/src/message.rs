@@ -107,3 +107,101 @@ pub struct TurnResponse {
     pub usage: Usage,
     pub model: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_constructors_set_correct_roles() {
+        assert_eq!(Message::system("s").role, Role::System);
+        assert_eq!(Message::user("u").role, Role::User);
+        assert_eq!(Message::assistant("a").role, Role::Assistant);
+    }
+
+    #[test]
+    fn text_extraction_from_plain_text() {
+        let msg = Message::user("hello");
+        assert_eq!(msg.text(), Some("hello"));
+    }
+
+    #[test]
+    fn text_extraction_from_blocks() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::ToolUse {
+                    id: "1".into(),
+                    name: "bash".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::Text {
+                    text: "result".into(),
+                },
+            ]),
+        };
+        assert_eq!(msg.text(), Some("result"));
+    }
+
+    #[test]
+    fn text_extraction_returns_none_for_blocks_without_text() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
+                id: "1".into(),
+                name: "bash".into(),
+                input: serde_json::json!({}),
+            }]),
+        };
+        assert_eq!(msg.text(), None);
+    }
+
+    #[test]
+    fn message_serialization_round_trip() {
+        let msg = Message::user("hello world");
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.role, Role::User);
+        assert_eq!(deserialized.text(), Some("hello world"));
+    }
+
+    #[test]
+    fn content_block_tool_result_round_trip() {
+        let block = ContentBlock::ToolResult {
+            tool_use_id: "call-1".into(),
+            content: "output text".into(),
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        let deserialized: ContentBlock = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } => {
+                assert_eq!(tool_use_id, "call-1");
+                assert_eq!(content, "output text");
+            }
+            other => panic!("expected ToolResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stop_reason_serialization() {
+        assert_eq!(
+            serde_json::to_string(&StopReason::EndTurn).unwrap(),
+            "\"end_turn\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StopReason::ToolUse).unwrap(),
+            "\"tool_use\""
+        );
+    }
+
+    #[test]
+    fn usage_defaults_to_zero() {
+        let usage = Usage::default();
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert!(usage.cache_read_tokens.is_none());
+    }
+}

@@ -104,3 +104,115 @@ fn dirs_home() -> Option<PathBuf> {
     #[cfg(not(windows))]
     return std::env::var("HOME").ok().map(PathBuf::from);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Guards env-var mutations so config tests don't race.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn default_config_has_sensible_values() {
+        let cfg = Config::default();
+        assert_eq!(cfg.provider.backend, "claude-code");
+        assert_eq!(cfg.provider.max_tokens, 8192);
+        assert_eq!(cfg.agent.name, "anvil");
+        assert_eq!(cfg.agent.max_iterations, 50);
+        assert_eq!(cfg.memory.max_context_episodes, 20);
+        assert!(cfg.provider.api_key.is_none());
+        assert!(cfg.provider.base_url.is_none());
+        assert!(cfg.agent.system_prompt.is_none());
+    }
+
+    #[test]
+    fn default_db_path_ends_with_memory_db() {
+        let cfg = Config::default();
+        assert!(
+            cfg.memory.db_path.ends_with("memory.db"),
+            "db_path should end with memory.db, got: {:?}",
+            cfg.memory.db_path
+        );
+    }
+
+    #[test]
+    fn resolved_api_key_prefers_config_over_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::set_var("ANTHROPIC_API_KEY", "env-key");
+        let mut cfg = Config::default();
+        cfg.provider.backend = "claude".to_string();
+        cfg.provider.api_key = Some("config-key".to_string());
+
+        assert_eq!(cfg.resolved_api_key(), Some("config-key".to_string()));
+        std::env::remove_var("ANTHROPIC_API_KEY");
+    }
+
+    #[test]
+    fn resolved_api_key_falls_back_to_env_for_claude() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::set_var("ANTHROPIC_API_KEY", "env-claude-key");
+        let mut cfg = Config::default();
+        cfg.provider.backend = "claude".to_string();
+        cfg.provider.api_key = None;
+
+        assert_eq!(cfg.resolved_api_key(), Some("env-claude-key".to_string()));
+        std::env::remove_var("ANTHROPIC_API_KEY");
+    }
+
+    #[test]
+    fn resolved_api_key_falls_back_to_env_for_openai() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        std::env::set_var("OPENAI_API_KEY", "env-openai-key");
+        let mut cfg = Config::default();
+        cfg.provider.backend = "openai".to_string();
+        cfg.provider.api_key = None;
+
+        assert_eq!(cfg.resolved_api_key(), Some("env-openai-key".to_string()));
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn resolved_api_key_returns_none_for_unknown_backend() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let mut cfg = Config::default();
+        cfg.provider.backend = "ollama".to_string();
+        cfg.provider.api_key = None;
+
+        assert_eq!(cfg.resolved_api_key(), None);
+    }
+
+    #[test]
+    fn config_round_trips_through_toml() {
+        let cfg = Config::default();
+        let serialized = toml::to_string(&cfg).expect("serialize");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialize");
+        assert_eq!(deserialized.provider.backend, cfg.provider.backend);
+        assert_eq!(deserialized.provider.model, cfg.provider.model);
+        assert_eq!(deserialized.agent.name, cfg.agent.name);
+        assert_eq!(
+            deserialized.memory.max_context_episodes,
+            cfg.memory.max_context_episodes
+        );
+    }
+
+    #[test]
+    fn load_returns_default_when_config_file_missing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Point HOME to a temp dir with no config file
+        let tmp = std::env::temp_dir().join("harness-config-test-missing");
+        std::fs::create_dir_all(&tmp).ok();
+        std::env::set_var("HOME", tmp.to_str().unwrap());
+
+        let cfg = Config::load().expect("load should succeed with defaults");
+        assert_eq!(cfg.provider.backend, "claude-code");
+
+        std::env::remove_var("HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
