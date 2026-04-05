@@ -63,7 +63,7 @@ Scopes: `core`, `tools`, `memory`, `cli`, `gateway`, `tui`, `paperclip`, `github
 ## Branching model
 
 ```
-main              ← stable, protected — PRs from dev only, requires human approval
+main              ← stable, protected — PRs from dev only, merged autonomously when CI is green and review passes
   dev             ← integration — PRs from feature/* only (no direct commits)
     feature/*     ← new features
     fix/*         ← bug fixes
@@ -71,7 +71,7 @@ main              ← stable, protected — PRs from dev only, requires human ap
     chore/*       ← deps / CI / tooling
 ```
 
-All feature branches cut from `dev`. Open a PR to `dev`; `dev` → `main` requires board approval.
+All feature branches cut from `dev`. Open a PR to `dev`; `dev` → `main` merges happen autonomously when all CI gates pass and review is complete.
 Squash-merge preferred for feature/* and fix/*; merge commit for larger milestones.
 
 ## Testing philosophy
