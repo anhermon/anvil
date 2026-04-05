@@ -137,6 +137,10 @@ fn home_dir() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write as _;
+    use std::sync::Mutex;
+
+    /// Guards env-var mutations so auth tests don't race each other.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Create a uniquely-named subdirectory under `std::env::temp_dir()`.
     fn make_temp_dir(suffix: &str) -> PathBuf {
@@ -159,6 +163,8 @@ mod tests {
 
     #[test]
     fn auth_resolve_prefers_bearer_when_both_present() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
         let dir = make_temp_dir("bearer-wins");
         write_creds(&dir, "sk-ant-bearer-token");
 
@@ -181,6 +187,8 @@ mod tests {
 
     #[test]
     fn auth_resolve_falls_back_to_api_key_when_no_creds_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
         let dir = make_temp_dir("apikey-fallback");
         std::env::set_var("CLAUDE_CONFIG_DIR", dir.to_str().expect("utf8 path"));
         std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-fallback-key");
