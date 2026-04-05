@@ -74,6 +74,19 @@ impl MemoryDb {
         .await?;
 
         sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_log (
+                id             TEXT PRIMARY KEY NOT NULL,
+                session_id     TEXT NOT NULL,
+                prompt_score   REAL NOT NULL,
+                outcome_kind   TEXT NOT NULL,
+                outcome_detail TEXT NOT NULL,
+                created_at     TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
             r#"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
                 id UNINDEXED,
                 content,
@@ -201,9 +214,27 @@ impl MemoryDb {
     /// syntax so that a multi-word goal like "explain rust ownership" matches
     /// episodes that contain any of those words rather than requiring all of
     /// them to be present.
+    ///
+    /// Each term is sanitized to strip characters that FTS5 rejects (e.g. a
+    /// trailing period in `"features."` produces `fts5: syntax error near "."`).
+    /// Only alphanumeric characters and underscores survive; empty terms after
+    /// sanitization are dropped. If no valid terms remain, returns an empty vec.
     pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<Episode>> {
-        // Convert "explain rust ownership" -> "explain OR rust OR ownership"
-        let fts_query = query.split_whitespace().collect::<Vec<_>>().join(" OR ");
+        // Strip FTS5-incompatible characters from each whitespace-delimited token.
+        let fts_query = query
+            .split_whitespace()
+            .map(|term| {
+                term.chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                    .collect::<String>()
+            })
+            .filter(|term| !term.is_empty())
+            .collect::<Vec<_>>()
+            .join(" OR ");
+
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
 
         let rows = sqlx::query(
             r#"SELECT e.id, e.session_id, e.kind, e.role, e.content, e.metadata, e.created_at
@@ -302,5 +333,33 @@ mod tests {
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].content, "message 0");
         assert_eq!(results[2].content, "message 2");
+    }
+
+    #[tokio::test]
+    async fn search_tolerates_punctuation() {
+        let db = MemoryDb::in_memory().await.unwrap();
+        let session_id = Uuid::new_v4();
+        let ep = crate::Episode::turn(session_id, "user", "overview of features");
+        db.insert(&ep).await.unwrap();
+
+        // Goal strings with trailing punctuation must not cause FTS5 syntax errors.
+        let results = db.search("features. what can you do,", 10).await;
+        assert!(
+            results.is_ok(),
+            "punctuated query should not fail: {results:?}"
+        );
+        assert_eq!(results.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn search_empty_after_sanitization_returns_empty() {
+        let db = MemoryDb::in_memory().await.unwrap();
+        // A query made entirely of punctuation produces no valid FTS5 terms.
+        let results = db.search("... !!! ---", 10).await;
+        assert!(
+            results.is_ok(),
+            "all-punctuation query should not fail: {results:?}"
+        );
+        assert_eq!(results.unwrap().len(), 0);
     }
 }

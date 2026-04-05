@@ -1,28 +1,147 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <!--
-    anvil — provider-agnostic Rust AI agent runtime
-    Clean geometric blacksmith's anvil silhouette, side view.
-    Deep navy fill (#1a1a2e). Compound path: horn + face + body + waist + feet.
+    Anvil — app icon (200×200)
+    Dark rounded-square background. Classic anvil side-profile.
+    Orange ember glow on the work face, ambient heat halo above.
+    Reference: board-provided Gemini logo (2026-04-04).
   -->
+  <defs>
+    <!-- Background: near-black with subtle warm center -->
+    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%"   stop-color="#1e1e1e"/>
+      <stop offset="100%" stop-color="#111111"/>
+    </radialGradient>
 
-  <!-- Left foot -->
-  <rect x="12" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
+    <!-- Anvil body: steel gray, lighter top, darker bottom -->
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#909090"/>
+      <stop offset="20%"  stop-color="#747474"/>
+      <stop offset="60%"  stop-color="#555555"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
+    </linearGradient>
 
-  <!-- Right foot -->
-  <rect x="78" y="66" width="30" height="10" rx="2" fill="#1a1a2e"/>
+    <!-- Horn / left arm: slightly darker steel -->
+    <linearGradient id="horn-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#707070"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
+    </linearGradient>
 
-  <!-- Waist — trapezoid connecting body to feet -->
-  <path d="M24 56 L96 56 L88 66 L32 66 Z" fill="#1a1a2e"/>
+    <!-- Work face top: bright horizontal highlight -->
+    <linearGradient id="face" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#6a6a6a"/>
+      <stop offset="35%"  stop-color="#a0a0a0"/>
+      <stop offset="65%"  stop-color="#a0a0a0"/>
+      <stop offset="100%" stop-color="#6a6a6a"/>
+    </linearGradient>
 
-  <!-- Body — main table platform -->
-  <path d="M14 40 L106 40 L106 48 L96 56 L24 56 L14 48 Z" fill="#1a1a2e"/>
+    <!-- Ember: orange glow across the top edge -->
+    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#bb2200" stop-opacity="0"/>
+      <stop offset="8%"   stop-color="#ff4400"/>
+      <stop offset="30%"  stop-color="#ff7700"/>
+      <stop offset="50%"  stop-color="#ff9900"/>
+      <stop offset="70%"  stop-color="#ff7700"/>
+      <stop offset="92%"  stop-color="#ff4400"/>
+      <stop offset="100%" stop-color="#bb2200" stop-opacity="0"/>
+    </linearGradient>
 
-  <!-- Hardy hole — square punch-through in table surface -->
-  <rect x="89" y="41" width="9" height="8" rx="1" fill="#f4f4f8"/>
+    <!-- Glow filter: tight blur for the ember line -->
+    <filter id="glow-edge" x="-20%" y="-600%" width="140%" height="1400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
 
-  <!-- Horn — tapered left projection -->
-  <path d="M14 40 L14 48 L1 45 Z" fill="#1a1a2e"/>
+    <!-- Ambient glow: large soft halo spreading above the anvil -->
+    <filter id="glow-halo" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
 
-  <!-- Work face — flat top surface -->
-  <rect x="13" y="35" width="94" height="5" rx="1.5" fill="#1a1a2e"/>
+  <!-- Background rounded square -->
+  <rect width="200" height="200" rx="40" fill="url(#bg)"/>
+
+  <!-- Ambient orange halo above work face (behind anvil body) -->
+  <ellipse cx="115" cy="74" rx="72" ry="22"
+           fill="#ff5500" opacity="0.32" filter="url(#glow-halo)"/>
+
+  <!-- =========================================================
+       ANVIL BODY — complete side-profile silhouette
+       Classic European style: left horn, wide flat face,
+       tapered waist, stable two-foot base.
+       Path clockwise from top-left of work face.
+       ========================================================= -->
+
+  <!-- Main body block (below work face, including waist + feet) -->
+  <path d="
+    M 55,88
+    L 162,88
+    L 162,100
+    C 158,100 154,106 150,116
+    L 148,132
+    L 156,146
+    L 156,164
+    L 112,164
+    L 108,148
+    L 92,148
+    L 88,164
+    L 44,164
+    L 44,146
+    L 52,132
+    L 50,116
+    C 46,106 42,100 38,100
+    L 38,88
+    Z
+  " fill="url(#steel)"/>
+
+  <!-- Horn: sweeping left arm -->
+  <path d="
+    M 38,88
+    L 55,88
+    L 55,100
+    C 46,100 40,100 38,100
+    C 34,100 16,102 16,98
+    C 16,93 30,82 38,88
+    Z
+  " fill="url(#horn-grad)"/>
+
+  <!-- Work face: flat top surface (slightly raised, brighter) -->
+  <rect x="55" y="78" width="107" height="10" rx="2" fill="url(#face)"/>
+
+  <!-- Hardy hole: square socket near right of face -->
+  <rect x="148" y="80" width="11" height="8" rx="1.5"
+        fill="#111111" opacity="0.9"/>
+
+  <!-- Left "step": subtle ledge where face meets horn -->
+  <rect x="38" y="88" width="17" height="6" rx="1"
+        fill="#6a6a6a" opacity="0.4"/>
+
+  <!-- Dark edge outline on body (depth) -->
+  <path d="
+    M 55,88 L 38,88
+    C 30,82 16,93 16,98
+    C 16,102 34,100 38,100
+    C 42,100 46,106 50,116
+    L 52,132 L 44,146 L 44,164
+    L 88,164 L 92,148 L 108,148
+    L 112,164 L 156,164 L 156,146
+    L 148,132 L 150,116
+    C 154,106 158,100 162,100
+    L 162,88 L 55,88
+  " fill="none" stroke="#1a1a1a" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- =========================================================
+       EMBER GLOW — hot orange line along the top edge
+       ========================================================= -->
+
+  <!-- Soft ambient orange above work face (radiated heat) -->
+  <rect x="45" y="66" width="122" height="14" rx="6"
+        fill="#ff5500" opacity="0.38" filter="url(#glow-halo)"/>
+
+  <!-- Crisp ember line on top edge of work face -->
+  <rect x="55" y="75" width="107" height="5" rx="2.5"
+        fill="url(#ember)" filter="url(#glow-edge)"/>
 </svg>

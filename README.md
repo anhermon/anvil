@@ -1,21 +1,25 @@
-# paperclip-harness
+# Anvil
 
-> A world-class, Rust-native agent harness. One binary. Any LLM. Full autonomy with comfortable human override.
+> A Rust-native, self-bootstrapping agent harness. One binary. Any LLM. Full autonomy with comfortable human override.
 
-**Status:** Phase 3 in progress — v0 single-turn loop shipped; sub-agent orchestration and self-evolution next.
+**Status:** v0.1.0 release candidate — Phases 1–7b complete. WebSocket gateway PR pending merge; TUI and public release next.
+
+[![CI](https://github.com/anhermon/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/anhermon/anvil/actions)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust 1.75+](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
 ---
 
-## Vision
+## What is Anvil?
 
-Most agent frameworks bolt autonomy onto a chat loop. `paperclip-harness` is designed from first principles as a **self-bootstrapping agent OS**:
+Most agent frameworks bolt autonomy onto a chat loop. Anvil is designed from first principles as a **self-bootstrapping agent OS**:
 
-1. You run the binary, configure your LLM provider, and describe your goals.
-2. The agent plans its first tasks, builds the skills it needs, and spawns sub-agents to execute them.
-3. After each session it reflects, critiques its own outputs, and evolves its prompts and skills.
-4. You watch, approve, and redirect via a Paperclip-compatible control plane — intervening only when you want to.
+1. Run `anvil run --goal "..."` — configure your LLM provider once, describe what you want done.
+2. The agent plans its tasks, builds the skills it needs, and spawns sub-agents to execute them.
+3. After each session it reflects, critiques its own outputs, and evolves its prompts and skills — the 5-gate self-evolution engine.
+4. Watch, approve, and redirect via a Paperclip-compatible control plane over WebSocket — intervene only when you want to.
 
-The result is a system that compounds in capability over time, learns from every session, and stays legible to its operators.
+The result is a system that **compounds in capability over time**, learns from every session, and stays legible to its operators.
 
 ---
 
@@ -26,36 +30,36 @@ Eight layers, bottom-up:
 ```
 ┌──────────────────────────────────────────────────┐
 │  8. Control Plane / UI                           │
-│     WebSocket gateway · ratatui TUI              │
-│     Paperclip API compatibility                  │
+│     WebSocket gateway (harness-gateway) ✅        │
+│     ratatui TUI (harness-tui) — next             │
+│     Paperclip API adapter (harness-paperclip) ✅  │
 ├──────────────────────────────────────────────────┤
 │  7. Self-Evolution Engine                        │
-│     observe → critique → generate → validate     │
+│     observe → critique → generate → validate ✅  │
 │     5-gate minority-veto · prompt/skill rollback │
 ├──────────────────────────────────────────────────┤
 │  6. Memory System                                │
-│     SQLite + FTS5 episodic · SQLite-vec semantic │
-│     PARA-structured knowledge base               │
+│     SQLite + FTS5 episodic recall ✅              │
+│     PARA-structured knowledge base ✅             │
+│     SQLite-vec semantic recall — planned          │
 ├──────────────────────────────────────────────────┤
 │  5. Sub-agent Orchestration                      │
-│     tokio tasks + RPC · session-type sandbox     │
-│     worktree isolation for coding agents         │
+│     tokio tasks · session-type sandbox ✅         │
+│     MAX_SUBAGENT_DEPTH=4 guard ✅                 │
 ├──────────────────────────────────────────────────┤
-│  4. Task Management                              │
-│     issue/task lifecycle · planning step         │
-│     graph-based DAG with checkpointing           │
+│  4. Tool & Skill System                          │
+│     registry dispatch · JSON-schema validation ✅ │
+│     bash exec · file read/write · GitHub API ✅   │
+│     dynamic MCP registration — planned           │
 ├──────────────────────────────────────────────────┤
-│  3. Tool & Skill System                          │
-│     registry dispatch · YAML/TOML + Rust skills  │
-│     dynamic MCP registration · WASM hot-reload   │
+│  3. Agent Core                                   │
+│     provider-agnostic LLM trait ✅                │
+│     async turn loop · tool-call loop ✅           │
+│     capability-gated permissions (type-state) ✅  │
 ├──────────────────────────────────────────────────┤
-│  2. Agent Core                                   │
-│     provider-agnostic LLM trait                  │
-│     async turn loop · capability-gated (type-state)│
-├──────────────────────────────────────────────────┤
-│  1. Bootstrap Layer                              │
-│     provider config at first run                 │
-│     context/goal elicitation · self-bootstraps   │
+│  2. Bootstrap Layer                              │
+│     provider config at first run ✅               │
+│     context/goal elicitation · auth resolution ✅ │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -63,13 +67,19 @@ Eight layers, bottom-up:
 
 ```
 crates/
-├── core/      Provider trait, message types, config, session, turn loop
-├── tools/     Tool registry, serde_json schema validation, built-in tools
-├── memory/    SQLite episodic memory (sqlx + FTS5), semantic recall (sqlite-vec)
-├── cli/       clap derive CLI: anvil run / config / memory / eval
-├── task/      (planned) Task DAG, planning step, checkpointing
-├── orchestrator/ (planned) Sub-agent spawn/manage via tokio RPC
-└── ui/        (planned) ratatui TUI + WebSocket control plane
+├── core/        Provider trait, message types, config, session, turn loop
+├── tools/       Tool registry, JSON-schema validation, built-in tools
+│                (BashExec, FileRead, FileWrite, GitHub search)
+├── memory/      SQLite + FTS5 episodic memory (sqlx), semantic recall
+├── evolution/   5-gate self-evolution engine: observe→critique→generate→validate→apply
+│                Prompt/skill/config versioning with rollback
+├── paperclip/   Paperclip control-plane client + heartbeat adapter
+│                anvil paperclip — polls inbox, checks out tasks, runs via harness-core
+├── github/      GitHub API client (search, file ops, PR management)
+├── gateway/     WebSocket control-plane: streams agent events, accepts control commands
+│                (AgentEvent, ControlCommand; broadcast fan-out; /health HTTP endpoint)
+│                [PR #36 — pending merge]
+└── cli/         clap derive CLI: anvil run / config / memory / eval / paperclip
 ```
 
 ---
@@ -78,14 +88,21 @@ crates/
 
 ```bash
 # Install from source (requires Rust 1.75+)
+git clone https://github.com/anhermon/anvil
+cd anvil
 cargo install --path crates/cli
 
 # Then run from anywhere:
 anvil --help
-anvil run --goal "your goal here"
 ```
 
-Set `ANTHROPIC_API_KEY` or use an existing Claude Code session (see Auth below).
+Set `ANTHROPIC_API_KEY` or reuse an existing Claude Code session — Anvil resolves credentials in this order:
+
+1. `ANTHROPIC_API_KEY` env var
+2. `claude_code` bearer token from `~/.claude/` config
+3. Interactive prompt
+
+---
 
 ## Usage
 
@@ -93,78 +110,93 @@ Set `ANTHROPIC_API_KEY` or use an existing Claude Code session (see Auth below).
 # Run an agent session with a goal
 anvil run --goal "Summarise the current directory"
 
-# Run with the echo provider -- no API key, great for testing
+# Use the echo provider — no API key, fast, CI-safe
 anvil run --provider echo --goal "hello"
 
-# Check your config
-anvil config --check
+# Run as a Paperclip heartbeat agent (polls inbox and executes assigned tasks)
+export PAPERCLIP_API_KEY=...
+export PAPERCLIP_API_URL=http://localhost:3100
+anvil paperclip --agent-id <your-agent-id> --company-id <company-id>
 
 # Search episodic memory
 anvil memory search "recent goals"
-```
-
-## Quick Start
-
-```bash
-# Requires Rust 1.75+
-git clone https://github.com/anhermon/paperclip-harness
-cd paperclip-harness
-
-# Run with Claude (default)
-export ANTHROPIC_API_KEY=sk-ant-...
-cargo run -- run --goal "Summarise the current directory"
-
-# Run with the echo provider — no API key, great for testing
-cargo run -- run --provider echo --goal "hello"
 
 # Check your config
-cargo run -- config --check
-
-# Search episodic memory
-cargo run -- memory search "yesterday's goal"
+anvil config --check
 ```
 
 ---
 
 ## Providers
 
-| Backend  | Env var             | Notes                                    |
-|----------|---------------------|------------------------------------------|
-| `claude` | `ANTHROPIC_API_KEY` | Default. Uses `claude-sonnet-4-5`.       |
-| `echo`   | —                   | Mirrors input back. Zero cost, CI-safe.  |
-| `openai` | `OPENAI_API_KEY`    | Planned — Phase 4.                       |
-| `local`  | —                   | Ollama / llama.cpp. Planned — Phase 4.   |
+| Backend  | Env var             | Notes                                          |
+|----------|---------------------|------------------------------------------------|
+| `claude` | `ANTHROPIC_API_KEY` | Default. Uses `claude-sonnet-4-5`.             |
+| `echo`   | —                   | Mirrors input back. Zero cost, CI-safe.        |
+| `openai` | `OPENAI_API_KEY`    | Planned.                                       |
+| `local`  | —                   | Ollama / llama.cpp — planned.                  |
 
-Adding a provider means implementing one async trait in `crates/core/src/providers/`.
+Adding a provider: implement one async trait in `crates/core/src/providers/`.
 
 ---
 
 ## Memory
 
-Episodes are stored in `~/.paperclip/harness/memory.db` (SQLite + FTS5).
+Episodes are stored in `~/.config/anvil/memory.db` (SQLite + FTS5).
 
 ```bash
-anvil memory search "rust async"    # full-text search
-anvil memory list --limit 20        # recent episodes
-anvil memory purge --before 30d     # clean up old entries
+anvil memory search "rust async"      # full-text search
+anvil memory list --limit 20          # recent episodes
+anvil memory purge --before 30d       # clean up old entries
 ```
 
-Semantic recall via `sqlite-vec` is planned for Phase 3.
+---
+
+## WebSocket Control Plane
+
+Once `harness-gateway` is merged (PR #36), Anvil exposes a WebSocket endpoint that streams live agent events and accepts control commands:
+
+```
+ws://localhost:PORT/ws
+GET /health
+```
+
+**Events** (server → client):
+
+| Event          | Payload                              |
+|----------------|--------------------------------------|
+| `TurnStart`    | turn index                           |
+| `Token`        | streamed token text                  |
+| `ToolCall`     | tool name + input                    |
+| `ToolResult`   | tool name + output                   |
+| `TurnComplete` | final turn message                   |
+| `Error`        | message string                       |
+
+**Commands** (client → server):
+
+| Command    | Effect                      |
+|------------|-----------------------------|
+| `Interrupt`| abort current turn          |
+| `Pause`    | pause after current tool    |
+| `Resume`   | resume from pause           |
+| `Ping`     | keepalive                   |
 
 ---
 
 ## Roadmap
 
-| Phase | Status       | Scope |
-|-------|-------------|-------|
-| 1     | ✅ done      | Claude Code fork & architecture study |
-| 2     | ✅ done      | Rust dev skills, Cargo workspace, provider trait, tool registry, SQLite memory, CLI |
-| 3     | 🔄 in progress | Tool call loop, streaming, `anvil eval`, task DAG, planning step |
-| 4     | planned     | Sub-agent orchestration (tokio RPC, session-type sandbox, worktree isolation) |
-| 5     | planned     | Self-evolution engine (5-gate validate, prompt/skill versioning, rollback) |
-| 6     | planned     | Control plane: WebSocket gateway, ratatui TUI, Paperclip API adapter, open-source release |
-
-Detailed per-phase breakdown lives in the [ANGA-70 plan](http://localhost:3100/ANGA/issues/ANGA-70#document-plan).
+| Phase | Status              | Scope |
+|-------|---------------------|-------|
+| 1     | ✅ done              | Claude Code architecture study; fork and KB seeding |
+| 2     | ✅ done              | Cargo workspace, provider trait, tool registry, SQLite memory, CLI |
+| 3     | ✅ done              | Full tool-call loop, streaming, `anvil eval`, integration tests |
+| 4     | ✅ done              | Sub-agent orchestration (tokio tasks, session-type sandbox, depth guard) |
+| 5     | ✅ done              | Self-evolution engine (5-gate validate, prompt/skill versioning, rollback) |
+| 6     | ✅ done              | Bash, file, GitHub tools; hooks; workspace lints; rename to Anvil |
+| 7a    | ✅ done              | `harness-paperclip` + `anvil paperclip` CLI — Paperclip heartbeat adapter |
+| 7b    | 🔄 PR #36 open       | `harness-gateway` — WebSocket control-plane (board merge pending) |
+| 7c    | 🗓 next              | `harness-tui` — ratatui interactive TUI (live feed, tool inspector, memory browser) |
+| 8     | 🗓 next              | v0.1.0 release tag, demo GIF, public announcement |
 
 ---
 
@@ -188,30 +220,33 @@ This harness is informed by studying the best open-source agent frameworks:
 
 ### Who this is for
 
-This project is primarily developed by AI agents operating under [Paperclip](https://paperclip.ing) governance, with human oversight from the project board. External contributors are welcome, but should read this section carefully.
+Anvil is primarily developed by AI agents operating under [Paperclip](https://paperclip.ing) governance, with human oversight from the project board. External contributors are welcome — read this section first.
 
 ### Ground rules
 
-- **Issues before PRs.** Open an issue to discuss intent before investing in an implementation. Large PRs without prior discussion will likely be closed.
-- **One concern per PR.** Keep changes focused. A PR that mixes a bug fix with a refactor and a new feature will be asked to split.
+- **Issues before PRs.** Open an issue to discuss intent before implementing. Large PRs without prior discussion will likely be closed.
+- **One concern per PR.** A PR that mixes a bug fix, refactor, and new feature will be asked to split.
 - **Tests are not optional.** Every new behaviour needs a test. The echo provider exists precisely so tests run without an API key.
-- **Unsafe code requires justification.** If you reach for `unsafe`, explain why in the PR body. Most use cases don't need it.
-- **No breaking changes without a plan.** If you need to change a public API, open a discussion issue first with a migration path.
+- **Unsafe code requires justification.** `unsafe_code = "forbid"` in the workspace — if you need an exception, justify it in the PR body.
+- **No breaking changes without a plan.** Open a discussion issue first with a migration path.
 
 ### Development workflow
 
 ```bash
-# Run the full test suite
-cargo test
+# Full test suite
+cargo test --workspace
 
 # Type-check without building (fast feedback)
-cargo check
+cargo check --workspace
 
 # Lint
-cargo clippy -- -D warnings
+cargo clippy --workspace -- -D warnings
 
-# Format
+# Format check
 cargo fmt --check
+
+# Security audit
+cargo audit
 ```
 
 ### Commit style
@@ -219,9 +254,9 @@ cargo fmt --check
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(memory): add FTS5 phrase search support
-fix(cli): handle missing config file gracefully
-docs(readme): expand architecture section
+feat(gateway): add fan-out broadcast to N WebSocket clients
+fix(core): handle missing config file gracefully
+docs(readme): update roadmap to reflect Phase 7b complete
 chore(deps): bump sqlx to 0.8
 ```
 
@@ -232,17 +267,13 @@ Co-Authored-By: Paperclip <noreply@paperclip.ing>
 
 ### Branching
 
-| Branch pattern | Purpose |
-|----------------|---------|
-| `master`       | Stable. Protected. Only merges from reviewed PRs. |
-| `feat/*`       | New features. Branch from `master`. |
-| `fix/*`        | Bug fixes. |
-| `docs/*`       | Documentation only. |
-| `chore/*`      | Deps, CI, tooling. |
-
-### Code of conduct
-
-Be direct, be kind, be useful. We don't have a lengthy CoC — just don't be a jerk, and focus on the work.
+| Branch pattern   | Purpose |
+|------------------|---------|
+| `main`           | Stable. Protected. Only merges from reviewed PRs from `dev`. |
+| `dev`            | Integration. Feature branches merge here first. |
+| `feature/<name>` | Active development. Branch from `dev`. |
+| `fix/<name>`     | Bug fixes. |
+| `chore/<name>`   | Deps, CI, tooling. |
 
 ---
 

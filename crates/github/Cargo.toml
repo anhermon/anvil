@@ -1,0 +1,25 @@
+[package]
+name = "harness-github"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "GitHub webhook integration for Anvil — agent @mention support"
+
+[dependencies]
+axum = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+harness-core = { workspace = true }
+
+# Webhook signature verification
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

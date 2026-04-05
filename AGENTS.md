@@ -14,26 +14,30 @@ framework. It is an opinionated runtime that:
 2. Plans, selects tools, and executes turns in a loop.
 3. Stores every turn in episodic memory (SQLite + FTS5).
 4. Stays under a configurable iteration budget (safety bound).
-5. Exposes hooks for human oversight via a Paperclip-compatible control plane (planned Phase 6).
+5. Exposes hooks for human oversight via a Paperclip-compatible control plane.
 
 The binary is `anvil`. Configuration lives at `~/.paperclip/harness/config.toml`.
 
 ---
 
-## Workspace architecture (4 crates)
+## Workspace architecture (7 crates)
 
 ```
 crates/
-├── core/      Provider trait, Message types, Config, Session, turn loop primitives
-├── tools/     ToolRegistry, ToolHandler trait, JSON Schema validation, built-in tools
-├── memory/    SQLite + FTS5 episodic memory (MemoryDb), Episode types
-└── cli/       clap CLI binary: Agent loop, subcommands (run, config, memory)
+├── core/       Provider trait, Message types, Config, Session, turn loop primitives
+├── tools/      ToolRegistry, ToolHandler trait, JSON Schema validation, built-in tools
+├── memory/     SQLite + FTS5 episodic memory (MemoryDb), Episode types
+├── cli/        clap CLI binary: Agent loop, subcommands (run, config, memory)
+├── evolution/  Phantom-pattern 5-gate self-evolution engine
+├── github/     GitHub @mention webhook support
+└── paperclip/  Paperclip control-plane client + heartbeat loop adapter
 ```
 
 Planned crates (do not add without a tracking issue): `task`, `orchestrator`, `ui`.
 
 Dependency direction is strict: `cli` → `core + tools + memory`. `tools` and `memory` must not
 depend on each other. `core` has no workspace-crate dependencies.
+`evolution` depends on `memory`. `paperclip` is standalone (no workspace-crate deps).
 
 ---
 
@@ -167,7 +171,7 @@ Co-Authored-By: Paperclip <noreply@paperclip.ing>
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`
-Scopes: `core`, `tools`, `memory`, `cli`, `task`, `orchestrator`, `ui`, `deps`
+Scopes: `core`, `tools`, `memory`, `cli`, `evolution`, `github`, `paperclip`, `deps`, `brand`
 
 AI-agent commits **must** include the `Co-Authored-By` trailer.
 
@@ -198,9 +202,13 @@ summarizing what was done. The CTO will review and merge.
 
 ## Roadmap context
 
-The project is in **Phase 3** (tool call loop, streaming, eval harness, task DAG). Phases 4–6
-(sub-agent orchestration, self-evolution, control plane) are planned but not yet implemented.
-Do not add stubs or placeholder crates for unimplemented phases without a tracking issue.
+The project has completed through **Phase 6**:
+- Phases 1–3: core runtime, tool calls, streaming, eval harness (stable)
+- Phase 5: self-evolution engine (`harness-evolution` crate)
+- Phase 6: Paperclip control-plane adapter (`harness-paperclip` crate) + GitHub webhooks (`harness-github`)
+
+Phase 4 (sub-agent orchestration) is deferred. Planned crates (`task`, `orchestrator`, `ui`) must
+not be added without a tracking issue.
 
 ---
 

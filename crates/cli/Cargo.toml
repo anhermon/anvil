@@ -8,10 +8,14 @@ license.workspace = true
 name = "anvil"
 path = "src/main.rs"
 
+[features]
+evolution = ["dep:harness-evolution"]
+
 [dependencies]
 harness-core = { workspace = true }
 harness-tools = { workspace = true }
 harness-memory = { workspace = true }
+harness-evolution = { path = "../evolution", optional = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }
