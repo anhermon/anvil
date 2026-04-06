@@ -145,7 +145,14 @@ impl Agent {
             .agent
             .system_prompt
             .as_deref()
-            .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.")
+            .unwrap_or(
+                "You are anvil, a highly capable software agent with access to tools. \
+                 Your goal is to accomplish tasks autonomously. \
+                 You are currently in the root of the 'anvil' repository. \
+                 Always prefer using tools (read, write, bash, grep) to explore the environment and execute actions. \
+                 Note: To use 'ls', you must use the 'bash' tool (e.g. bash(command=\"ls\")). \
+                 Be concise and direct."
+            )
             .to_string();
 
         let system_with_memory = self
@@ -279,7 +286,7 @@ impl Agent {
                             .collect::<String>();
                         self.hook.on_tool_call(&name, &input_preview);
 
-                        let output = if name == "spawn_subagent" {
+                        let mut output = if name == "spawn_subagent" {
                             let sub_goal = input["goal"].as_str().unwrap_or("").to_string();
                             let context = input
                                 .get("context")
@@ -296,6 +303,20 @@ impl Agent {
                         } else {
                             self.tools.call(&name, input).await
                         };
+
+                        // Truncate extremely large tool outputs to prevent context bloat.
+                        if output.content.len() > 10000 {
+                            warn!(
+                                tool = %name,
+                                len = output.content.len(),
+                                "truncating large tool output"
+                            );
+                            output.content = format!(
+                                "{}... [TRUNCATED {} characters]",
+                                &output.content[..10000],
+                                output.content.len() - 10000
+                            );
+                        }
 
                         if output.is_error {
                             warn!(tool = %name, "tool returned error: {}", output.content);
