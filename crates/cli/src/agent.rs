@@ -10,8 +10,8 @@ use harness_core::{
 use harness_memory::MemoryDb;
 use harness_tools::{
     builtin::{
-        BashExecTool, EchoTool, ListSkillsTool, ReadFileTool, ReadSkillTool, RefineSkillTool,
-        SaveSkillTool, SpawnSubagentTool, WriteFileTool,
+        BashExecTool, EchoTool, GrepTool, ListSkillsTool, ReadFileTool, ReadSkillTool,
+        RefineSkillTool, SaveSkillTool, SpawnSubagentTool, WriteFileTool,
     },
     ToolRegistry,
 };
@@ -86,6 +86,7 @@ impl Agent {
         let tools = ToolRegistry::new();
         tools.register(EchoTool);
         tools.register(ReadFileTool);
+        tools.register(GrepTool);
         tools.register(SpawnSubagentTool);
         tools.register(BashExecTool);
         tools.register(WriteFileTool);
@@ -306,9 +307,9 @@ impl Agent {
                         });
                     }
 
-                    // Feed results back as a user-role message and continue.
+                    // Feed results back as a tool-role message and continue.
                     let tool_result_msg = Message {
-                        role: Role::User,
+                        role: Role::Tool,
                         content: MessageContent::Blocks(result_blocks),
                     };
                     messages.push(tool_result_msg.clone());
