@@ -20,7 +20,10 @@ pub struct OllamaProvider {
 impl OllamaProvider {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, max_tokens: u32) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             base_url: base_url.into(),
             model: model.into(),
             max_tokens,
@@ -119,6 +122,8 @@ struct OpenAiRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OpenAiTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -242,6 +247,7 @@ impl Provider for OllamaProvider {
             max_tokens: Some(self.max_tokens),
             stream: false,
             tools: openai_tools,
+            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
         };
 
         debug!(model = %self.model, url = %self.endpoint(), "sending request to Ollama (OpenAI-compatible)");
@@ -330,6 +336,7 @@ impl Provider for OllamaProvider {
             max_tokens: Some(self.max_tokens),
             stream: true,
             tools: None,
+            tool_choice: None,
         };
 
         let resp = self
