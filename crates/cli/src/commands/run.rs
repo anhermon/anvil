@@ -7,7 +7,7 @@ use futures::StreamExt;
 use harness_core::{
     config::Config,
     provider::Provider,
-    providers::{ClaudeCodeProvider, ClaudeProvider},
+    providers::{ClaudeCodeProvider, ClaudeProvider, OllamaProvider},
 };
 use harness_memory::MemoryDb;
 use indicatif::ProgressBar;
@@ -24,6 +24,10 @@ pub struct RunArgs {
     /// Provider backend override (claude, claude-code, cc, echo)
     #[arg(long, env = "HARNESS_PROVIDER")]
     pub provider: Option<String>,
+
+    /// Model identifier override (e.g. "gemma4:e2b")
+    #[arg(long, env = "HARNESS_MODEL")]
+    pub model: Option<String>,
 
     /// Stream response tokens to stdout as they arrive
     #[arg(long)]
@@ -109,18 +113,36 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         .as_deref()
         .unwrap_or(&config.provider.backend)
         .to_string();
+    let model = args
+        .model
+        .as_deref()
+        .unwrap_or(&config.provider.model)
+        .to_string();
+
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
         }
         "claude-code" | "cc" => {
-            let model = &config.provider.model;
             tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
-            Arc::new(ClaudeCodeProvider::new(model))
+            Arc::new(ClaudeCodeProvider::new(&model))
+        }
+        "ollama" => {
+            let base_url = config
+                .provider
+                .base_url
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
+            tracing::info!(model = %model, base_url = %base_url, "using OllamaProvider");
+            Arc::new(OllamaProvider::new(
+                base_url,
+                &model,
+                config.provider.max_tokens,
+            ))
         }
         _ => Arc::new(
-            ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
+            ClaudeProvider::from_env(&model, config.provider.max_tokens)
                 .map_err(|e| anyhow::anyhow!("{}", e))?,
         ),
     };
@@ -175,7 +197,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             .with_hook(Arc::clone(&hook) as Arc<dyn UiHook>);
 
         ui::print_banner();
-        ui::print_session_header("pending", &config.provider.model, &backend);
+        ui::print_session_header("pending", &model, &backend);
 
         // Inform user about active session name.
         if let Some(ref sname) = args.session {
