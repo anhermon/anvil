@@ -35,7 +35,7 @@ EOF
       echo "0.0"
     else
       # linear interpolation with awk
-      awk "BEGIN { printf \"%.4f\", ($zero - $val) / ($zero - $perfect) }"
+      awk -v v="$val" -v p="$perfect" -v z="$zero" 'BEGIN { printf "%.4f", (z - v) / (z - p) }'
     fi
   fi
 }
@@ -95,7 +95,7 @@ done <<< "$TEST_OUTPUT"
 
 TOTAL_TESTS=$((TOTAL_PASSED + TOTAL_FAILED))
 if [ "$TOTAL_TESTS" -gt 0 ]; then
-  TEST_PASS_RATE=$(awk "BEGIN { printf \"%.4f\", $TOTAL_PASSED / $TOTAL_TESTS }")
+  TEST_PASS_RATE=$(awk -v p="$TOTAL_PASSED" -v t="$TOTAL_TESTS" 'BEGIN { printf "%.4f", p / t }')
 else
   # No tests found; treat as 0
   TEST_PASS_RATE="0.0"
@@ -160,23 +160,19 @@ BUILD_SCORE=$(trim "$(normalize "$BUILD_TIME" 120 600)")
 if [ "$BINARY_SIZE_BYTES" -eq 0 ] 2>/dev/null; then
   BINARY_SCORE="1.0"
 else
-  BINARY_MB=$(awk "BEGIN { printf \"%.2f\", $BINARY_SIZE_BYTES / 1048576 }")
+  BINARY_MB=$(awk -v b="$BINARY_SIZE_BYTES" 'BEGIN { printf "%.2f", b / 1048576 }')
   BINARY_SCORE=$(trim "$(normalize "$BINARY_MB" 50 200)")
 fi
 
 # Weighted overall: test_pass_rate: 0.4, build_time: 0.2, clippy: 0.15,
 #                   check_time: 0.1, fmt: 0.1, binary_size: 0.05
-OVERALL=$(awk "BEGIN { printf \"%.4f\",
-  $TEST_PASS_RATE * 0.4 +
-  $CLIPPY_CLEAN   * 0.15 +
-  $FMT_CLEAN      * 0.1 +
-  $BUILD_SCORE    * 0.2 +
-  $CHECK_SCORE    * 0.1 +
-  $BINARY_SCORE   * 0.05 }")
+OVERALL=$(awk -v tr="$TEST_PASS_RATE" -v cl="$CLIPPY_CLEAN" -v fm="$FMT_CLEAN" \
+  -v bs="$BUILD_SCORE" -v cs="$CHECK_SCORE" -v bn="$BINARY_SCORE" \
+  'BEGIN { printf "%.4f", tr*0.4 + cl*0.15 + fm*0.1 + bs*0.2 + cs*0.1 + bn*0.05 }')
 
 # Pass if overall >= 0.7
 PASS=false
-if awk "BEGIN { exit ($OVERALL >= 0.7) ? 0 : 1 }"; then
+if awk -v ov="$OVERALL" 'BEGIN { exit (ov >= 0.7) ? 0 : 1 }'; then
   PASS=true
 fi
 
