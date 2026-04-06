@@ -65,6 +65,73 @@ impl ToolHandler for SpawnSubagentTool {
     }
 }
 
+/// Search for a pattern in a file or directory using the `grep` command.
+pub struct GrepTool;
+
+#[async_trait]
+impl ToolHandler for GrepTool {
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            name: "grep".into(),
+            description: "Search for a pattern in a file or directory. \
+                Returns matching lines with line numbers."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "The regex pattern to search for"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "The file or directory to search in"
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Whether to search recursively (default: false)"
+                    }
+                },
+                "required": ["pattern", "path"]
+            }),
+        }
+    }
+
+    async fn call(&self, input: Value) -> ToolOutput {
+        let pattern = match input["pattern"].as_str() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => return ToolOutput::err("pattern is required"),
+        };
+        let path = match input["path"].as_str() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => return ToolOutput::err("path is required"),
+        };
+        let recursive = input["recursive"].as_bool().unwrap_or(false);
+
+        let mut cmd = std::process::Command::new("grep");
+        cmd.arg("-n"); // line numbers
+        if recursive {
+            cmd.arg("-r");
+        }
+        cmd.arg(&pattern).arg(&path);
+
+        match cmd.output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                if out.status.success() {
+                    ToolOutput::ok(stdout.to_string())
+                } else if out.status.code() == Some(1) {
+                    ToolOutput::ok("(no matches found)".to_string())
+                } else {
+                    ToolOutput::err(format!("grep failed: {stderr}"))
+                }
+            }
+            Err(e) => ToolOutput::err(format!("failed to execute grep: {e}")),
+        }
+    }
+}
+
 /// Read the UTF-8 contents of a file at a given path.
 ///
 /// # Security
@@ -154,7 +221,7 @@ fn reset_safe_edit_state_for_tests() {
 #[async_trait]
 impl ToolHandler for ReadFileTool {
     fn schema(&self) -> ToolSchema {
-        ToolSchema::simple("read_file", "Read the UTF-8 contents of a file", &["path"])
+        ToolSchema::simple("read", "Read the UTF-8 contents of a file", &["path"])
     }
 
     async fn call(&self, input: Value) -> ToolOutput {
@@ -192,7 +259,7 @@ impl ToolHandler for ReadFileTool {
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
-    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep",
 ];
 
 fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
@@ -228,9 +295,9 @@ action: retry with workspace-local paths or allowed commands, or request a broad
 impl ToolHandler for BashExecTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
-            name: "bash_exec".into(),
+            name: "bash".into(),
             description: "Execute a shell command and return stdout+stderr. \
-                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which, grep. \
                 Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
@@ -309,7 +376,7 @@ pub struct WriteFileTool;
 impl ToolHandler for WriteFileTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
-            name: "write_file".into(),
+            name: "write".into(),
             description: "Write content to a file at the given relative path. \
                 Creates parent directories as needed. \
                 Rejects absolute paths and \'..\' traversal."
