@@ -6,10 +6,26 @@ use harness_core::config::Config;
 use harness_core::message::{ContentBlock, MessageContent, Role};
 use harness_core::provider::Provider;
 use harness_core::session::Session;
-use harness_memory::MemoryDb;
+use harness_memory::{EvolutionScope, MemoryDb, ScopeKind};
 
 use crate::scoring::EloRating;
-use crate::tasks::ALL_TASKS;
+use crate::tasks::{TaskEvalContext, ALL_TASKS};
+
+/// Match `Agent::resolve_learning_scope` so overlay telemetry uses the same DB keys
+/// as evolution apply/activate (workdir when cwd resolves, else global).
+fn bench_evolution_scope() -> EvolutionScope {
+    let key = std::env::current_dir()
+        .ok()
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .map(|p| p.to_string_lossy().to_string());
+    match key {
+        Some(scope_key) => EvolutionScope {
+            kind: ScopeKind::Workdir,
+            key: Some(scope_key),
+        },
+        None => EvolutionScope::global(),
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RunResult {
@@ -37,16 +53,23 @@ pub async fn run_iteration(
 ) -> anyhow::Result<Vec<RunResult>> {
     let mut results = Vec::new();
     let mut elo = EloRating::new();
+    let scope = bench_evolution_scope();
 
-    let overlay_before = harness_memory::resolve_effective_overlay(
-        memory.pool(),
-        &harness_memory::EvolutionScope::global(),
-    )
-    .await
-    .ok()
-    .flatten();
+    let artifact_dir = std::env::temp_dir().join(format!(
+        "anvil-bench-iter{iteration}-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&artifact_dir)?;
+    let eval_ctx = TaskEvalContext {
+        multi_tool_output: Some(artifact_dir.join("bench_provider_files.txt")),
+    };
 
     for task in ALL_TASKS {
+        let overlay_before = harness_memory::resolve_effective_overlay(memory.pool(), &scope)
+            .await
+            .ok()
+            .flatten();
+
         let t0 = Instant::now();
 
         let mut run_config = config.clone();
@@ -59,9 +82,10 @@ pub async fn run_iteration(
             run_config,
         );
 
+        let goal = task.goal_for_run(&eval_ctx);
         let session = agent
             .run_with_options(
-                task.goal,
+                goal.as_str(),
                 RunOptions {
                     session_name: Some(format!("bench-iter{}", iteration)),
                     max_iterations: Some(max_turns),
@@ -71,19 +95,17 @@ pub async fn run_iteration(
 
         let elapsed_ms = t0.elapsed().as_millis() as u64;
 
-        let (criteria_met, criteria_details) = task.evaluate(&session);
+        let (criteria_met, criteria_details) = task.evaluate(&session, &eval_ctx);
 
         let tool_calls = count_tool_calls(&session);
 
         let (input_tokens, output_tokens) = estimate_tokens(&session);
 
-        let overlay_after = harness_memory::resolve_effective_overlay(
-            memory.pool(),
-            &harness_memory::EvolutionScope::global(),
-        )
-        .await
-        .ok()
-        .flatten();
+        let overlay_after =
+            harness_memory::resolve_effective_overlay(memory.pool(), &scope)
+                .await
+                .ok()
+                .flatten();
         let evolution_applied = match (&overlay_before, &overlay_after) {
             (None, None) => false,
             (None, Some(_)) => true,

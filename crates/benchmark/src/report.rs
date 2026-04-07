@@ -82,6 +82,80 @@ pub fn outer_iteration_delta(rollups: &[IterationRollup]) -> Option<OuterIterDel
     })
 }
 
+/// Stability of each task across **outer** benchmark iterations (same task name, many runs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskStabilityRollup {
+    pub task_name: String,
+    pub runs: usize,
+    pub pass_count: usize,
+    pub pass_rate: f64,
+    pub median_duration_ms: u64,
+    pub median_agent_iters: usize,
+}
+
+fn median_u64(mut xs: Vec<u64>) -> u64 {
+    if xs.is_empty() {
+        return 0;
+    }
+    xs.sort_unstable();
+    let mid = xs.len() / 2;
+    if xs.len() % 2 == 0 {
+        (xs[mid - 1] + xs[mid]) / 2
+    } else {
+        xs[mid]
+    }
+}
+
+fn median_usize(mut xs: Vec<usize>) -> usize {
+    if xs.is_empty() {
+        return 0;
+    }
+    xs.sort_unstable();
+    let mid = xs.len() / 2;
+    if xs.len() % 2 == 0 {
+        (xs[mid - 1] + xs[mid]) / 2
+    } else {
+        xs[mid]
+    }
+}
+
+pub fn compute_task_stability(results: &[RunResult]) -> Vec<TaskStabilityRollup> {
+    let mut by_task: HashMap<String, Vec<&RunResult>> = HashMap::new();
+    for r in results {
+        by_task.entry(r.task_name.clone()).or_default().push(r);
+    }
+    let mut names: Vec<String> = by_task.keys().cloned().collect();
+    names.sort();
+
+    names
+        .into_iter()
+        .map(|task_name| {
+            let runs_ref = by_task
+                .get(&task_name)
+                .expect("task_name from keys");
+            let n = runs_ref.len();
+            let pass_count = runs_ref.iter().filter(|r| r.criteria_met).count();
+            let pass_rate = if n == 0 {
+                0.0
+            } else {
+                pass_count as f64 / n as f64
+            };
+            let median_duration_ms = median_u64(runs_ref.iter().map(|r| r.duration_ms).collect());
+            let median_agent_iters =
+                median_usize(runs_ref.iter().map(|r| r.iterations_used).collect());
+
+            TaskStabilityRollup {
+                task_name,
+                runs: n,
+                pass_count,
+                pass_rate,
+                median_duration_ms,
+                median_agent_iters,
+            }
+        })
+        .collect()
+}
+
 pub fn generate(results: &[RunResult], total_iterations: usize) -> String {
     let mut buf = String::new();
 
@@ -172,6 +246,32 @@ To measure learning impact, compare controlled A/B runs (same tasks, overlay on 
         );
     }
 
+    let task_stab = compute_task_stability(results);
+    if !task_stab.is_empty() && total_iterations >= 2 {
+        buf.push_str("## Per-task stability (across outer iterations)\n\n");
+        buf.push_str(
+            "Median duration and median agent loops summarize run-to-run variance for the same task. \
+Raise `--iterations` for more reliable medians.\n\n",
+        );
+        buf.push_str(&format!(
+            "{:<22} {:>5} {:>10} {:>14} {:>18}\n",
+            "Task", "Runs", "Pass %", "Med time(ms)", "Med agent loops"
+        ));
+        buf.push_str(&"-".repeat(74));
+        buf.push('\n');
+        for t in &task_stab {
+            buf.push_str(&format!(
+                "{:<22} {:>5} {:>9.0}% {:>14} {:>18}\n",
+                t.task_name,
+                t.runs,
+                t.pass_rate * 100.0,
+                t.median_duration_ms,
+                t.median_agent_iters
+            ));
+        }
+        buf.push('\n');
+    }
+
     buf.push_str("## Criteria Details\n\n");
     for r in results {
         buf.push_str(&format!(
@@ -225,6 +325,63 @@ mod tests {
         assert!((roll[0].mean_session_iterations - 8.0 / 3.0).abs() < 1e-9);
         assert!((roll[0].mean_tool_calls - 1.0).abs() < 1e-9);
         assert_eq!(roll[0].evolution_events, 1);
+    }
+
+    #[test]
+    fn task_stability_median_and_pass_rate() {
+        let results = vec![
+            RunResult {
+                iteration: 1,
+                task_name: "tool_call_basic".to_string(),
+                duration_ms: 100,
+                iterations_used: 2,
+                tool_calls: 1,
+                input_tokens: 0,
+                output_tokens: 0,
+                criteria_met: true,
+                criteria_details: String::new(),
+                final_text: String::new(),
+                evolution_applied: false,
+                elo_before: 1200.0,
+                elo_after: 1200.0,
+            },
+            RunResult {
+                iteration: 2,
+                task_name: "tool_call_basic".to_string(),
+                duration_ms: 300,
+                iterations_used: 4,
+                tool_calls: 2,
+                input_tokens: 0,
+                output_tokens: 0,
+                criteria_met: false,
+                criteria_details: String::new(),
+                final_text: String::new(),
+                evolution_applied: false,
+                elo_before: 1200.0,
+                elo_after: 1200.0,
+            },
+            RunResult {
+                iteration: 3,
+                task_name: "tool_call_basic".to_string(),
+                duration_ms: 200,
+                iterations_used: 3,
+                tool_calls: 1,
+                input_tokens: 0,
+                output_tokens: 0,
+                criteria_met: true,
+                criteria_details: String::new(),
+                final_text: String::new(),
+                evolution_applied: false,
+                elo_before: 1200.0,
+                elo_after: 1200.0,
+            },
+        ];
+        let st = compute_task_stability(&results);
+        assert_eq!(st.len(), 1);
+        assert_eq!(st[0].runs, 3);
+        assert!((st[0].pass_rate - 2.0 / 3.0).abs() < 1e-9);
+        assert_eq!(st[0].median_duration_ms, 200);
+        assert_eq!(st[0].median_agent_iters, 3);
     }
 
     #[test]
