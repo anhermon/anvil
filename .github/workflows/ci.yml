@@ -53,6 +53,16 @@ jobs:
         run: cargo build --workspace
       - name: test
         run: cargo test --workspace
+      - name: test (cli without evolution feature)
+        run: cargo test -p harness-cli --no-default-features
+      - name: e2e benchmark gate (echo; matches baseline_pass_rate)
+        run: |
+          set -euo pipefail
+          BASELINE=$(awk '/^[-0-9.]+$/ {print; exit}' crates/benchmark/baseline_pass_rate | tr -d '\r')
+          OUT="$(cargo run -p harness-benchmark --bin anvil-bench -- --iterations 2 --provider echo 2>&1)"
+          printf '%s\n' "$OUT"
+          SCORE="$(printf '%s\n' "$OUT" | grep BENCH_OVERALL_PASS_RATE | awk '{print $2}')"
+          python3 -c "import sys; b=float('$BASELINE'); s=float('$SCORE'); sys.exit(0 if s+1e-9>=b else 1)"
 
   security:
     name: Security Audit
