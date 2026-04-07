@@ -1,0 +1,29 @@
+[package]
+name = "harness-benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "anvil-bench"
+path = "src/main.rs"
+
+[dependencies]
+harness-core = { path = "../core" }
+harness-memory = { path = "../memory" }
+harness-tools = { path = "../tools" }
+harness-evolution = { path = "../evolution" }
+# Evolution must be enabled so `Agent` runs the post-session hook; otherwise bench
+# "evolution analysis" reflects an inert code path.
+harness-cli = { path = "../cli", features = ["evolution"] }
+
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono", "uuid"] }
