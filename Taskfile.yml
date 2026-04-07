@@ -63,16 +63,62 @@ tasks:
     vars:
       ITERATIONS: '{{.ITERATIONS | default 3}}'
       PROVIDER: '{{.PROVIDER | default "echo"}}'
+      MODEL: '{{.MODEL | default "glm-4.7-flash"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+      MAX_TURNS: '{{.MAX_TURNS | default 15}}'
     cmds:
       - |
         set -euo pipefail
         BASELINE=$(awk '/^[-0-9.]+$/ {print; exit}' crates/benchmark/baseline_pass_rate | tr -d '\r')
-        OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- --iterations {{.ITERATIONS}} --provider {{.PROVIDER}} 2>&1)"
+        if [ "{{.PROVIDER}}" = "echo" ]; then
+          OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- --iterations {{.ITERATIONS}} --provider echo 2>&1)"
+        else
+          OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- \
+            --iterations {{.ITERATIONS}} --provider {{.PROVIDER}} --model {{.MODEL}} --base-url '{{.BASE_URL}}' --max-turns {{.MAX_TURNS}} 2>&1)"
+        fi
         printf '%s\n' "$OUT"
         SCORE="$(printf '%s\n' "$OUT" | grep BENCH_OVERALL_PASS_RATE | awk '{print $2}')"
         python3 -c "import sys; b=float('$BASELINE'); s=float('$SCORE'); sys.exit(0 if s+1e-9>=b else 1)" \
           || { echo "bench gate: score $SCORE < baseline $BASELINE" >&2; exit 1; }
         echo "bench gate: score $SCORE >= baseline $BASELINE"
+
+  bench:record-if-improved:
+    desc: "Run bench once; if pass rate beats baseline, bump file, task bench:gate, git commit (restore baseline if gate fails)"
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 3}}'
+      PROVIDER: '{{.PROVIDER | default "echo"}}'
+      MODEL: '{{.MODEL | default "glm-4.7-flash"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+      MAX_TURNS: '{{.MAX_TURNS | default 15}}'
+    cmds:
+      - |
+        set -euo pipefail
+        BASELINE_FILE="crates/benchmark/baseline_pass_rate"
+        OLD="$(awk '/^[-0-9.]+$/ {print; exit}' "$BASELINE_FILE" | tr -d '\r')"
+        if [ "{{.PROVIDER}}" = "echo" ]; then
+          OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- --iterations {{.ITERATIONS}} --provider echo 2>&1)"
+        else
+          OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- \
+            --iterations {{.ITERATIONS}} --provider {{.PROVIDER}} --model {{.MODEL}} --base-url '{{.BASE_URL}}' --max-turns {{.MAX_TURNS}} 2>&1)"
+        fi
+        printf '%s\n' "$OUT"
+        SCORE="$(printf '%s\n' "$OUT" | grep BENCH_OVERALL_PASS_RATE | awk '{print $2}')"
+        if ! python3 -c "import sys; b=float('$OLD'); s=float('$SCORE'); sys.exit(0 if s > b + 1e-9 else 1)"; then
+          echo "bench record-if-improved: score $SCORE is not strictly greater than baseline $OLD — no file change, no commit"
+          exit 0
+        fi
+        printf '%s\n' "$SCORE" > "$BASELINE_FILE"
+        if ! task bench:gate ITERATIONS={{.ITERATIONS}} PROVIDER={{.PROVIDER}} MODEL={{.MODEL}} BASE_URL='{{.BASE_URL}}' MAX_TURNS={{.MAX_TURNS}}; then
+          printf '%s\n' "$OLD" > "$BASELINE_FILE"
+          echo "bench record-if-improved: re-validation failed; restored baseline to $OLD" >&2
+          exit 1
+        fi
+        git add "$BASELINE_FILE"
+        git commit \
+          -m "chore(bench): raise baseline_pass_rate ${OLD} -> ${SCORE}" \
+          -m "BENCH_OVERALL_PASS_RATE with ITERATIONS={{.ITERATIONS}} PROVIDER={{.PROVIDER}}." \
+          -m "Co-Authored-By: Paperclip <noreply@paperclip.ing>"
+        echo "bench record-if-improved: committed baseline ${OLD} -> ${SCORE}"
 
   bench:evolution:
     desc: Run evolution-focused benchmark — tests if agent improves across iterations
