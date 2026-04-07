@@ -330,13 +330,39 @@ impl Provider for OllamaProvider {
     }
 
     async fn stream(&self, messages: &[Message]) -> Result<TokenStream> {
+        self.stream_with_tools(messages, &[]).await
+    }
+
+    async fn stream_with_tools(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+    ) -> Result<TokenStream> {
+        let openai_tools = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .map(|t| OpenAiTool {
+                        tool_type: "function".to_string(),
+                        function: OpenAiFunction {
+                            name: t.name.clone(),
+                            description: t.description.clone(),
+                            parameters: t.input_schema.clone(),
+                        },
+                    })
+                    .collect(),
+            )
+        };
+
         let body = OpenAiRequest {
             model: &self.model,
             messages: self.build_openai_messages(messages),
             max_tokens: Some(self.max_tokens),
             stream: true,
-            tools: None,
-            tool_choice: None,
+            tools: openai_tools,
+            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
         };
 
         let resp = self
@@ -391,7 +417,8 @@ impl Provider for OllamaProvider {
                                     }
 
                                     if let Some(data) = line.strip_prefix("data: ") {
-                                        if let Ok(v) = serde_json::from_str::<OpenAiStreamResponse>(data)
+                                        if let Ok(v) =
+                                            serde_json::from_str::<OpenAiStreamResponse>(data)
                                         {
                                             if let Some(choice) = v.choices.first() {
                                                 if let Some(content) = &choice.delta.content {

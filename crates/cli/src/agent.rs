@@ -25,10 +25,40 @@ const MAX_SUBAGENT_DEPTH: usize = 4;
 /// The default no-op implementation is used for sub-agents and tests so they
 /// stay silent. The root CLI turn installs a coloured implementation.
 pub trait UiHook: Send + Sync {
-    /// Called just before a tool is dispatched.
+    /// Called just before a tool is dispatched (compact terminal preview).
     fn on_tool_call(&self, name: &str, input_preview: &str);
+    /// Called with the full tool invocation details (name, id, complete input JSON).
+    /// Default: delegates to `on_tool_call` with a preview derived from the input.
+    fn on_tool_call_full(&self, name: &str, tool_use_id: &str, input: &serde_json::Value) {
+        let preview = input
+            .as_object()
+            .and_then(|m| m.values().next())
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(60)
+            .collect::<String>();
+        self.on_tool_call(name, &preview);
+        let _ = tool_use_id; // suppress unused warning in default impl
+    }
     /// Called with the tool output after it returns.
     fn on_tool_result(&self, output: &str);
+    /// Called with the full tool result including id and error flag.
+    /// Default: delegates to `on_tool_result`.
+    fn on_tool_result_full(&self, tool_use_id: &str, output: &str, is_error: bool) {
+        self.on_tool_result(output);
+        let _ = (tool_use_id, is_error); // suppress unused warnings in default impl
+    }
+    /// Called when the assistant produces a text response (not a tool call).
+    /// Default: no-op (terminal rendering is handled separately by `run.rs`).
+    fn on_text(&self, text: &str) {
+        let _ = text;
+    }
+    /// Called at session completion with the final result text.
+    /// Default: no-op.
+    fn on_result(&self, text: &str, is_error: bool, session_id: &str) {
+        let _ = (text, is_error, session_id);
+    }
     /// Called while waiting for the provider to return; receives `[current/max]` label.
     fn on_thinking(&self, iteration: usize, max_iter: usize);
     /// Called when the provider has returned (end of thinking).
@@ -151,6 +181,18 @@ impl Agent {
                  You are currently in the root of the 'anvil' repository. \
                  Always prefer using tools (read, write, bash, grep) to explore the environment and execute actions. \
                  Note: To use 'ls', you must use the 'bash' tool (e.g. bash(command=\"ls\")). \
+                 \n\n\
+                 ## Skills\n\n\
+                 You have a skill library stored at ~/.anvil/skills/. Skills are Markdown files \
+                 containing instructions, workflows, and domain knowledge that guide your behaviour. \
+                 At the start of every session, call list_skills() to see what skills are available. \
+                 When a user's request matches a skill's domain, call read_skill(name) to load the \
+                 full instructions and follow them. \n\n\
+                 Available skill tools:\n\
+                 - list_skills() — returns all skills with name and description\n\
+                 - read_skill(name) — loads full skill content and increments usage counter\n\
+                 - save_skill(name, description, content) — creates or updates a skill\n\
+                 - refine_skill(name, feedback) — appends refinement notes to an existing skill\n\n\
                  Be concise and direct."
             )
             .to_string();
@@ -230,11 +272,18 @@ impl Agent {
 
             match response.stop_reason {
                 StopReason::EndTurn | StopReason::StopSequence | StopReason::MaxTokens => {
+                    let final_text = response.message.text().unwrap_or("").to_string();
+
+                    // Notify hook of the final assistant text so JSON output mode can emit it.
+                    if !final_text.is_empty() {
+                        self.hook.on_text(&final_text);
+                    }
+
                     // Persist final assistant turn to memory.
                     let ep = harness_memory::Episode::turn(
                         session.id,
                         "assistant",
-                        response.message.text().unwrap_or(""),
+                        &final_text,
                     );
                     let sn = opts.session_name.as_deref();
                     self.memory.insert_named(&ep, sn).await?;
@@ -243,26 +292,43 @@ impl Agent {
                     let goal_ep = harness_memory::Episode::turn(session.id, "user", goal);
                     self.memory.insert_named(&goal_ep, sn).await?;
 
+                    // Notify hook that the session is complete.
+                    self.hook.on_result(&final_text, false, &session.id.to_string());
+
                     session.finish(SessionStatus::Done);
                     break;
                 }
 
                 StopReason::ToolUse => {
                     // Extract every ToolUse block from the assistant response.
-                    let tool_calls: Vec<(String, String, serde_json::Value)> = match &response
+                    // Also emit any text blocks that appear alongside tool calls.
+                    let (tool_calls, text_blocks): (Vec<(String, String, serde_json::Value)>, Vec<String>) = match &response
                         .message
                         .content
                     {
-                        MessageContent::Blocks(blocks) => blocks
-                            .iter()
-                            .filter_map(|b| {
-                                if let ContentBlock::ToolUse { id, name, input } = b {
-                                    Some((id.clone(), name.clone(), input.clone()))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect(),
+                        MessageContent::Blocks(blocks) => {
+                            let tools = blocks
+                                .iter()
+                                .filter_map(|b| {
+                                    if let ContentBlock::ToolUse { id, name, input } = b {
+                                        Some((id.clone(), name.clone(), input.clone()))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            let texts = blocks
+                                .iter()
+                                .filter_map(|b| {
+                                    if let ContentBlock::Text { text } = b {
+                                        if !text.is_empty() { Some(text.clone()) } else { None }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            (tools, texts)
+                        }
                         _ => {
                             warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
                             session.finish(SessionStatus::Done);
@@ -270,12 +336,17 @@ impl Agent {
                         }
                     };
 
+                    // Emit any text blocks that appear before or alongside the tool calls.
+                    for text in &text_blocks {
+                        self.hook.on_text(text);
+                    }
+
                     // Execute each tool and collect result blocks.
                     let mut result_blocks: Vec<ContentBlock> = Vec::new();
                     for (tool_use_id, name, input) in tool_calls {
                         info!(tool = %name, depth = self.depth, "calling tool");
 
-                        // Build a compact preview of the input for the UI hook.
+                        // Notify hooks with both compact preview (terminal) and full data (JSON).
                         let input_preview = input
                             .as_object()
                             .and_then(|m| m.values().next())
@@ -285,6 +356,7 @@ impl Agent {
                             .take(60)
                             .collect::<String>();
                         self.hook.on_tool_call(&name, &input_preview);
+                        self.hook.on_tool_call_full(&name, &tool_use_id, &input);
 
                         let mut output = if name == "spawn_subagent" {
                             let sub_goal = input["goal"].as_str().unwrap_or("").to_string();
@@ -322,6 +394,7 @@ impl Agent {
                             warn!(tool = %name, "tool returned error: {}", output.content);
                         }
                         self.hook.on_tool_result(&output.content);
+                        self.hook.on_tool_result_full(&tool_use_id, &output.content, output.is_error);
                         result_blocks.push(ContentBlock::ToolResult {
                             tool_use_id,
                             content: output.content,
