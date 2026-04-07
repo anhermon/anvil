@@ -260,6 +260,7 @@ pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
     "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep",
+    "bash", "curl", "jq",
 ];
 
 fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
@@ -291,13 +292,38 @@ action: retry with workspace-local paths or allowed commands, or request a broad
     ))
 }
 
+fn is_env_assignment_token(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let Some((name, _value)) = token.split_once('=') else {
+        return false;
+    };
+    if name.is_empty() {
+        return false;
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+}
+
+fn first_command_token(command: &str) -> &str {
+    command
+        .split_whitespace()
+        .find(|token| !is_env_assignment_token(token))
+        .unwrap_or("")
+}
+
 #[async_trait]
 impl ToolHandler for BashExecTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             name: "bash".into(),
             description: "Execute a shell command and return stdout+stderr. \
-                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which, grep. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which, grep, bash, curl, jq. \
                 Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
@@ -320,8 +346,8 @@ impl ToolHandler for BashExecTool {
         };
         let command_for_error = command.clone();
 
-        // Allowlist check: only permit commands whose first token is in ALLOWED_COMMANDS
-        let first_token = command.split_whitespace().next().unwrap_or("");
+        // Allowlist check: permit leading VAR=VALUE assignments and validate the first command token.
+        let first_token = first_command_token(&command);
         if !ALLOWED_COMMANDS.contains(&first_token) {
             return ToolOutput::err(format!(
                 "Command not allowed: only [{}] are permitted",
@@ -562,6 +588,34 @@ mod tests {
         let tool = BashExecTool;
         let out = tool.call(json!({})).await;
         assert!(out.is_error);
+    }
+
+    #[tokio::test]
+    async fn bash_exec_allows_leading_env_assignments() {
+        let tool = BashExecTool;
+        let out = tool
+            .call(json!({"command": "ISSUE_ID=abc VERIFICATION=ok bash -lc 'echo $ISSUE_ID'"}))
+            .await;
+        assert!(!out.is_error, "unexpected error: {}", out.content);
+        assert!(
+            out.content.contains("abc"),
+            "expected ISSUE_ID value in output: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_exec_rejects_non_allowlisted_command_after_env_assignments() {
+        let tool = BashExecTool;
+        let out = tool
+            .call(json!({"command": "FOO=bar python -c 'print(1)'"}))
+            .await;
+        assert!(out.is_error, "expected non-allowlisted command to fail");
+        assert!(
+            out.content.contains("not allowed"),
+            "expected not allowed error: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
