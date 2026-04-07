@@ -40,3 +40,45 @@ tasks:
       - task: lint
       - task: test
       - echo "All checks passed"
+
+  bench:run:
+    desc: Run e2e benchmark N times against a real LLM
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 5}}'
+      MODEL: '{{.MODEL | default "glm-4.7-flash"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+      MAX_TURNS: '{{.MAX_TURNS | default 15}}'
+    cmds:
+      - cargo run --release --bin anvil-bench -- --iterations {{.ITERATIONS}} --model {{.MODEL}} --base-url {{.BASE_URL}} --max-turns {{.MAX_TURNS}}
+
+  bench:ci:
+    desc: Run e2e benchmark with mock provider (CI-safe, no API key)
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 3}}'
+    cmds:
+      - cargo run --release --bin anvil-bench -- --iterations {{.ITERATIONS}} --provider echo
+
+  bench:gate:
+    desc: Fail if BENCH_OVERALL_PASS_RATE is below crates/benchmark/baseline_pass_rate (first numeric line)
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 3}}'
+      PROVIDER: '{{.PROVIDER | default "echo"}}'
+    cmds:
+      - |
+        set -euo pipefail
+        BASELINE=$(awk '/^[-0-9.]+$/ {print; exit}' crates/benchmark/baseline_pass_rate | tr -d '\r')
+        OUT="$(cargo run --release -p harness-benchmark --bin anvil-bench -- --iterations {{.ITERATIONS}} --provider {{.PROVIDER}} 2>&1)"
+        printf '%s\n' "$OUT"
+        SCORE="$(printf '%s\n' "$OUT" | grep BENCH_OVERALL_PASS_RATE | awk '{print $2}')"
+        python3 -c "import sys; b=float('$BASELINE'); s=float('$SCORE'); sys.exit(0 if s+1e-9>=b else 1)" \
+          || { echo "bench gate: score $SCORE < baseline $BASELINE" >&2; exit 1; }
+        echo "bench gate: score $SCORE >= baseline $BASELINE"
+
+  bench:evolution:
+    desc: Run evolution-focused benchmark — tests if agent improves across iterations
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 10}}'
+      MODEL: '{{.MODEL | default "glm-4.7-flash"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+    cmds:
+      - cargo run --release --bin anvil-bench -- --iterations {{.ITERATIONS}} --model {{.MODEL}} --base-url {{.BASE_URL}} --max-turns 20

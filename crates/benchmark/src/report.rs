@@ -16,6 +16,16 @@ pub struct IterationRollup {
     pub evolution_events: usize,
 }
 
+/// Fraction of task runs that met success criteria (`passes / total_runs`).
+/// Use this as the primary regression metric (stable across report formatting changes).
+pub fn overall_pass_rate(results: &[RunResult]) -> f64 {
+    if results.is_empty() {
+        return 0.0;
+    }
+    let pass = results.iter().filter(|r| r.criteria_met).count();
+    pass as f64 / results.len() as f64
+}
+
 pub fn compute_rollups(results: &[RunResult]) -> Vec<IterationRollup> {
     let mut groups: HashMap<usize, Vec<&RunResult>> = HashMap::new();
     for r in results {
@@ -27,9 +37,7 @@ pub fn compute_rollups(results: &[RunResult]) -> Vec<IterationRollup> {
 
     keys.into_iter()
         .map(|iteration| {
-            let runs = groups
-                .get(&iteration)
-                .expect("iteration key from groups");
+            let runs = groups.get(&iteration).expect("iteration key from groups");
             let task_count = runs.len();
             let pass_count = runs.iter().filter(|r| r.criteria_met).count();
             let pass_rate = if task_count == 0 {
@@ -130,9 +138,7 @@ pub fn compute_task_stability(results: &[RunResult]) -> Vec<TaskStabilityRollup>
     names
         .into_iter()
         .map(|task_name| {
-            let runs_ref = by_task
-                .get(&task_name)
-                .expect("task_name from keys");
+            let runs_ref = by_task.get(&task_name).expect("task_name from keys");
             let n = runs_ref.len();
             let pass_count = runs_ref.iter().filter(|r| r.criteria_met).count();
             let pass_rate = if n == 0 {
@@ -280,6 +286,10 @@ Raise `--iterations` for more reliable medians.\n\n",
         ));
     }
 
+    let overall = overall_pass_rate(results);
+    buf.push('\n');
+    buf.push_str(&format!("BENCH_OVERALL_PASS_RATE {:.4}\n", overall));
+
     buf
 }
 
@@ -310,6 +320,21 @@ mod tests {
             elo_before: 1200.0,
             elo_after: 1200.0,
         }
+    }
+
+    #[test]
+    fn overall_pass_rate_empty_is_zero() {
+        assert_eq!(overall_pass_rate(&[]), 0.0);
+    }
+
+    #[test]
+    fn overall_pass_rate_matches_pass_fraction() {
+        let results = vec![
+            sample_run(1, true, 1, 1, false),
+            sample_run(1, false, 2, 1, false),
+            sample_run(1, true, 1, 0, false),
+        ];
+        assert!((overall_pass_rate(&results) - 2.0 / 3.0).abs() < 1e-9);
     }
 
     #[test]
@@ -386,10 +411,9 @@ mod tests {
 
     #[test]
     fn outer_iteration_delta_requires_two_iters() {
-        assert!(outer_iteration_delta(&compute_rollups(&[
-            sample_run(1, true, 1, 0, false),
-        ]))
-        .is_none());
+        assert!(
+            outer_iteration_delta(&compute_rollups(&[sample_run(1, true, 1, 0, false),])).is_none()
+        );
 
         let two = vec![
             sample_run(1, true, 2, 1, false),

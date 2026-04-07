@@ -9,7 +9,7 @@ use harness_core::session::Session;
 use harness_memory::{EvolutionScope, MemoryDb, ScopeKind};
 
 use crate::scoring::EloRating;
-use crate::tasks::{BenchTier, TaskEvalContext, tasks_for_tier};
+use crate::tasks::{tasks_for_tier, BenchTier, TaskEvalContext};
 
 /// Match `Agent::resolve_learning_scope` so overlay telemetry uses the same DB keys
 /// as evolution apply/activate (workdir when cwd resolves, else global).
@@ -56,16 +56,15 @@ pub async fn run_iteration(
     let mut elo = EloRating::new();
     let scope = bench_evolution_scope();
 
-    let artifact_dir = std::env::temp_dir().join(format!(
-        "anvil-bench-iter{iteration}-{}",
-        uuid::Uuid::new_v4()
-    ));
+    // Repo-relative paths only: `write` rejects absolute paths (sandbox). Use under `target/` (gitignored).
+    let artifact_dir = std::path::PathBuf::from("target")
+        .join("anvil-bench")
+        .join(format!("iter{iteration}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&artifact_dir)?;
 
-    let rel_hard_root = std::path::Path::new("target").join("anvil-bench-hard").join(format!(
-        "iter{iteration}-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let rel_hard_root = std::path::Path::new("target")
+        .join("anvil-bench-hard")
+        .join(format!("iter{iteration}-{}", uuid::Uuid::new_v4()));
     if tier == BenchTier::Hard {
         std::fs::create_dir_all(&rel_hard_root)?;
     }
@@ -93,11 +92,7 @@ pub async fn run_iteration(
         run_config.agent.max_iterations = max_turns;
         run_config.agent.system_prompt = None;
 
-        let agent = Agent::new(
-            Arc::clone(&provider),
-            Arc::clone(&memory),
-            run_config,
-        );
+        let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), run_config);
 
         let goal = task.goal_for_run(&eval_ctx);
         let session = agent
@@ -118,11 +113,10 @@ pub async fn run_iteration(
 
         let (input_tokens, output_tokens) = estimate_tokens(&session);
 
-        let overlay_after =
-            harness_memory::resolve_effective_overlay(memory.pool(), &scope)
-                .await
-                .ok()
-                .flatten();
+        let overlay_after = harness_memory::resolve_effective_overlay(memory.pool(), &scope)
+            .await
+            .ok()
+            .flatten();
         let evolution_applied = match (&overlay_before, &overlay_after) {
             (None, None) => false,
             (None, Some(_)) => true,
