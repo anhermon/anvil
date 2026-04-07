@@ -31,7 +31,10 @@ impl OllamaProvider {
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'))
+        format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        )
     }
 
     fn build_openai_messages(&self, messages: &[Message]) -> Vec<OpenAiMessage> {
@@ -57,7 +60,11 @@ impl OllamaProvider {
                     if msg.role == Role::Tool {
                         // For Role::Tool, each ToolResult block must be a separate message in OpenAI
                         for block in blocks {
-                            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+                            if let ContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                            } = block
+                            {
                                 result.push(OpenAiMessage {
                                     role: "tool".to_string(),
                                     content: Some(serde_json::Value::String(content.clone())),
@@ -87,9 +94,17 @@ impl OllamaProvider {
                         }
                         result.push(OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: if text.is_empty() { None } else { Some(serde_json::Value::String(text)) },
+                            content: if text.is_empty() {
+                                None
+                            } else {
+                                Some(serde_json::Value::String(text))
+                            },
                             tool_call_id: None,
-                            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                            tool_calls: if tool_calls.is_empty() {
+                                None
+                            } else {
+                                Some(tool_calls)
+                            },
                         });
                     } else {
                         // Fallback for System/User with blocks
@@ -247,7 +262,11 @@ impl Provider for OllamaProvider {
             max_tokens: Some(self.max_tokens),
             stream: false,
             tools: openai_tools,
-            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
+            tool_choice: if tools.is_empty() {
+                None
+            } else {
+                Some("auto".to_string())
+            },
         };
 
         debug!(model = %self.model, url = %self.endpoint(), "sending request to Ollama (OpenAI-compatible)");
@@ -274,9 +293,10 @@ impl Provider for OllamaProvider {
             .await
             .map_err(|e| HarnessError::Provider(e.to_string()))?;
 
-        let choice = api_resp.choices.first().ok_or_else(|| {
-            HarnessError::Provider("Ollama returned empty choices".to_string())
-        })?;
+        let choice = api_resp
+            .choices
+            .first()
+            .ok_or_else(|| HarnessError::Provider("Ollama returned empty choices".to_string()))?;
 
         let stop_reason = match choice.finish_reason.as_deref() {
             Some("tool_calls") | Some("function_call") => StopReason::ToolUse,
@@ -362,7 +382,11 @@ impl Provider for OllamaProvider {
             max_tokens: Some(self.max_tokens),
             stream: true,
             tools: openai_tools,
-            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
+            tool_choice: if tools.is_empty() {
+                None
+            } else {
+                Some("auto".to_string())
+            },
         };
 
         let resp = self

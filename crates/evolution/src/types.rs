@@ -13,10 +13,13 @@ pub struct SessionSummary {
     pub outcome: String,
     /// How many iterations the session ran.
     pub iteration_count: usize,
-    /// Whether the session completed successfully (status == Done).
+    /// Whether the session ended in [`harness_core::session::SessionStatus::Done`].
     pub succeeded: bool,
     /// Number of tool calls made during the session.
     pub tool_call_count: usize,
+    /// Tool results that matched sandbox / policy error heuristics (path rules, allowlist, timeouts).
+    #[serde(default)]
+    pub tool_rejection_count: usize,
 }
 
 /// Numeric quality score for the current system prompt produced by the Critic.
@@ -51,6 +54,28 @@ impl ValidationVote {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorVoteRecord {
+    pub candidate_id: Uuid,
+    pub validator: String,
+    pub vote: ValidationVote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvolutionScope {
+    pub kind: String,
+    pub key: Option<String>,
+}
+
+impl EvolutionScope {
+    pub fn global() -> Self {
+        Self {
+            kind: "global".to_string(),
+            key: None,
+        }
+    }
+}
+
 /// The final outcome of one evolution cycle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EvolutionOutcome {
@@ -73,12 +98,14 @@ pub struct EvolutionRecord {
     pub prompt_score: f64,
     pub outcome_kind: String, // "applied" | "discarded" | "skipped"
     pub outcome_detail: String,
+    pub candidate_id: Option<Uuid>,
+    pub metadata: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }
 
 impl EvolutionRecord {
     pub fn from_outcome(session_id: Uuid, score: f64, outcome: &EvolutionOutcome) -> Self {
-        let (kind, detail) = match outcome {
+        let (kind, detail, candidate_id, metadata) = match outcome {
             EvolutionOutcome::Applied {
                 candidate,
                 rejection_count,
@@ -88,9 +115,25 @@ impl EvolutionRecord {
                     "Applied candidate '{}' ({} rejections)",
                     candidate.description, rejection_count
                 ),
+                Some(candidate.id),
+                serde_json::json!({
+                    "candidate_id": candidate.id,
+                    "description": candidate.description,
+                    "rejection_count": rejection_count
+                }),
             ),
-            EvolutionOutcome::Discarded { reason } => ("discarded".to_string(), reason.clone()),
-            EvolutionOutcome::Skipped { reason } => ("skipped".to_string(), reason.clone()),
+            EvolutionOutcome::Discarded { reason } => (
+                "discarded".to_string(),
+                reason.clone(),
+                None,
+                serde_json::json!({ "reason": reason }),
+            ),
+            EvolutionOutcome::Skipped { reason } => (
+                "skipped".to_string(),
+                reason.clone(),
+                None,
+                serde_json::json!({ "reason": reason }),
+            ),
         };
         Self {
             id: Uuid::new_v4(),
@@ -98,6 +141,8 @@ impl EvolutionRecord {
             prompt_score: score,
             outcome_kind: kind,
             outcome_detail: detail,
+            candidate_id,
+            metadata,
             created_at: Utc::now(),
         }
     }

@@ -57,6 +57,10 @@ struct Args {
     /// Task suite: `hard` adds `crate_dirs_manifest` (exact `crates/*` listing); run from repo root.
     #[arg(long, value_enum, default_value_t = BenchTierArg::Default)]
     tier: BenchTierArg,
+
+    /// Write a concise Markdown capability snapshot (for `{llm_model, anvil_commit}` reports).
+    #[arg(long, value_name = "PATH")]
+    summary_md: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -66,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("anvil_bench=info".parse()?)
                 .add_directive("harness_core=info".parse()?)
-                .add_directive("harness_cli=info".parse()?)
+                .add_directive("harness_cli=info".parse()?),
         )
         .init();
 
@@ -126,6 +130,23 @@ async fn main() -> anyhow::Result<()> {
 
     let report = report::generate(&all_results, args.iterations);
     println!("{}", report);
+
+    if let Some(path) = args.summary_md.as_ref() {
+        let meta = report::SummaryMeta {
+            anvil_git_commit: report::resolve_anvil_git_commit()
+                .unwrap_or_else(|| "unknown".to_string()),
+            model: args.model.clone(),
+            provider: args.provider.clone(),
+            tier,
+            outer_iterations: args.iterations,
+        };
+        let md = report::generate_summary_markdown(&all_results, &meta);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, md)?;
+        eprintln!("wrote summary markdown to {}", path.display());
+    }
 
     Ok(())
 }

@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     traits::{Applier, Critic, Generator, Observer, Validator},
-    types::{EvolutionOutcome, EvolutionRecord},
+    types::{EvolutionOutcome, EvolutionRecord, EvolutionScope, ValidatorVoteRecord},
 };
 
 /// Number of validators that must reject a candidate for it to be discarded.
@@ -41,6 +41,16 @@ impl EvolutionEngine {
         session: &Session,
         current_prompt: &str,
     ) -> anyhow::Result<EvolutionOutcome> {
+        self.evolve_with_scope(session, current_prompt, &EvolutionScope::global())
+            .await
+    }
+
+    pub async fn evolve_with_scope(
+        &self,
+        session: &Session,
+        current_prompt: &str,
+        scope: &EvolutionScope,
+    ) -> anyhow::Result<EvolutionOutcome> {
         // Gate 1 – Observe
         let summary = self.observer.observe(session).await?;
         debug!(session_id = %summary.session_id, "observer done");
@@ -69,12 +79,18 @@ impl EvolutionEngine {
 
         // Gate 4 – Validate with minority-veto, pick first survivor
         let mut applied: Option<EvolutionOutcome> = None;
+        let mut all_votes: Vec<ValidatorVoteRecord> = Vec::new();
 
         'candidates: for candidate in &candidates {
             let mut reject_count = 0usize;
 
             for (i, validator) in self.validators.iter().enumerate() {
                 let vote = validator.validate(candidate, &summary).await?;
+                all_votes.push(ValidatorVoteRecord {
+                    candidate_id: candidate.id,
+                    validator: format!("validator-{i}"),
+                    vote: vote.clone(),
+                });
                 debug!(
                     validator = i,
                     candidate_id = %candidate.id,
@@ -101,7 +117,10 @@ impl EvolutionEngine {
                 rejection_count: reject_count,
             };
             let record = EvolutionRecord::from_outcome(session.id, score.score, &outcome);
-            self.applier.apply(candidate, &record).await?;
+            self.applier
+                .apply(candidate, &record, scope, current_prompt)
+                .await?;
+            self.persist_votes(&record, &all_votes).await?;
             self.persist_record(&record).await?;
             applied = Some(outcome);
             break;
@@ -114,7 +133,9 @@ impl EvolutionEngine {
         });
 
         if matches!(outcome, EvolutionOutcome::Discarded { .. }) {
-            self.persist(session, score.score, &outcome).await?;
+            let record = EvolutionRecord::from_outcome(session.id, score.score, &outcome);
+            self.persist_votes(&record, &all_votes).await?;
+            self.persist_record(&record).await?;
         }
 
         Ok(outcome)
@@ -144,5 +165,35 @@ impl EvolutionEngine {
             created_at: &created_at,
         };
         harness_memory::insert_evolution_entry(self.memory.pool(), &entry).await
+    }
+
+    async fn persist_votes(
+        &self,
+        record: &EvolutionRecord,
+        votes: &[ValidatorVoteRecord],
+    ) -> anyhow::Result<()> {
+        let created_at = record.created_at.to_rfc3339();
+        let record_id = record.id.to_string();
+        let mut entries = Vec::with_capacity(votes.len());
+        for vote in votes {
+            let id = uuid::Uuid::new_v4().to_string();
+            let candidate_id = vote.candidate_id.to_string();
+            let (vote_kind, reason) = match &vote.vote {
+                crate::types::ValidationVote::Accept => ("accept".to_string(), None),
+                crate::types::ValidationVote::Reject { reason } => {
+                    ("reject".to_string(), Some(reason.clone()))
+                }
+            };
+            entries.push(harness_memory::ValidationVoteEntry {
+                id,
+                record_id: record_id.clone(),
+                candidate_id,
+                validator: vote.validator.clone(),
+                vote_kind,
+                reason,
+                created_at: created_at.clone(),
+            });
+        }
+        harness_memory::insert_validation_votes(self.memory.pool(), &entries).await
     }
 }

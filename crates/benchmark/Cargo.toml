@@ -14,7 +14,7 @@ harness-tools = { path = "../tools" }
 harness-evolution = { path = "../evolution" }
 # Evolution must be enabled so `Agent` runs the post-session hook; otherwise bench
 # "evolution analysis" reflects an inert code path.
-harness-cli = { path = "../cli", features = ["evolution"] }
+harness-cli = { path = "../cli" }
 
 anyhow = "1"
 async-trait = "0.1"

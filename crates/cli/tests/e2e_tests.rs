@@ -35,10 +35,7 @@ impl Provider for ScriptedProvider {
         "scripted"
     }
 
-    async fn complete(
-        &self,
-        _messages: &[Message],
-    ) -> harness_core::error::Result<TurnResponse> {
+    async fn complete(&self, _messages: &[Message]) -> harness_core::error::Result<TurnResponse> {
         let mut guard = self.responses.lock().unwrap();
         Ok(guard.pop().expect("ScriptedProvider ran out of responses"))
     }
@@ -75,10 +72,7 @@ impl Provider for ScriptedProviderCaptureSystem {
         "scripted-capture"
     }
 
-    async fn complete(
-        &self,
-        messages: &[Message],
-    ) -> harness_core::error::Result<TurnResponse> {
+    async fn complete(&self, messages: &[Message]) -> harness_core::error::Result<TurnResponse> {
         let mut cap = self.captured_system.lock().unwrap();
         if cap.is_none() {
             let sys = messages
@@ -90,7 +84,9 @@ impl Provider for ScriptedProviderCaptureSystem {
         }
         drop(cap);
         let mut guard = self.responses.lock().unwrap();
-        Ok(guard.pop().expect("ScriptedProviderCaptureSystem ran out of responses"))
+        Ok(guard
+            .pop()
+            .expect("ScriptedProviderCaptureSystem ran out of responses"))
     }
 }
 
@@ -146,8 +142,14 @@ mod tests {
     #[tokio::test]
     async fn e2e_tool_call_basic_completes() {
         let provider = Arc::new(ScriptedProvider::new(vec![
-            tool_use_response("t1", "echo", serde_json::json!({"message": "Cargo.toml\nREADME.md\nTaskfile.yml\nAGENTS.md\ncrates"})),
-            end_turn_response("Here are the files:\nCargo.toml\nREADME.md\nTaskfile.yml\nAGENTS.md\ncrates"),
+            tool_use_response(
+                "t1",
+                "echo",
+                serde_json::json!({"message": "Cargo.toml\nREADME.md\nTaskfile.yml\nAGENTS.md\ncrates"}),
+            ),
+            end_turn_response(
+                "Here are the files:\nCargo.toml\nREADME.md\nTaskfile.yml\nAGENTS.md\ncrates",
+            ),
         ]));
 
         let memory = make_memory().await;
@@ -155,18 +157,27 @@ mod tests {
 
         let agent = Agent::new(provider, memory, config);
 
-        let session = agent.run_with_options(
-            "List the files in the current directory",
-            RunOptions {
-                session_name: Some("e2e-tool-basic".to_string()),
-                max_iterations: Some(10),
-            },
-        ).await.unwrap();
+        let session = agent
+            .run_with_options(
+                "List the files in the current directory",
+                RunOptions {
+                    session_name: Some("e2e-tool-basic".to_string()),
+                    max_iterations: Some(10),
+                },
+            )
+            .await
+            .unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
         let final_text = session.messages.last().and_then(|m| m.text()).unwrap_or("");
-        assert!(final_text.contains("Cargo.toml"), "expected Cargo.toml in output");
-        assert!(final_text.contains("README.md"), "expected README.md in output");
+        assert!(
+            final_text.contains("Cargo.toml"),
+            "expected Cargo.toml in output"
+        );
+        assert!(
+            final_text.contains("README.md"),
+            "expected README.md in output"
+        );
     }
 
     #[tokio::test]
@@ -181,18 +192,22 @@ mod tests {
 
         let agent = Agent::new(provider, memory, config);
 
-        let session = agent.run_with_options(
-            "Read the README.md and give me a 2-sentence summary",
-            RunOptions {
-                session_name: Some("e2e-summarize".to_string()),
-                max_iterations: Some(10),
-            },
-        ).await.unwrap();
+        let session = agent
+            .run_with_options(
+                "Read the README.md and give me a 2-sentence summary",
+                RunOptions {
+                    session_name: Some("e2e-summarize".to_string()),
+                    max_iterations: Some(10),
+                },
+            )
+            .await
+            .unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
         let final_text = session.messages.last().and_then(|m| m.text()).unwrap_or("");
         assert!(
-            final_text.to_lowercase().contains("anvil") || final_text.to_lowercase().contains("agent"),
+            final_text.to_lowercase().contains("anvil")
+                || final_text.to_lowercase().contains("agent"),
             "summary should mention project concepts"
         );
     }
@@ -209,13 +224,16 @@ mod tests {
 
         let agent = Agent::new(provider, memory, config);
 
-        let session = agent.run_with_options(
-            "Search for Provider trait and write results to /tmp/bench_provider_files.txt",
-            RunOptions {
-                session_name: Some("e2e-multi-tool".to_string()),
-                max_iterations: Some(10),
-            },
-        ).await.unwrap();
+        let session = agent
+            .run_with_options(
+                "Search for Provider trait and write results to /tmp/bench_provider_files.txt",
+                RunOptions {
+                    session_name: Some("e2e-multi-tool".to_string()),
+                    max_iterations: Some(10),
+                },
+            )
+            .await
+            .unwrap();
 
         assert_eq!(session.status, harness_core::session::SessionStatus::Done);
     }
@@ -306,19 +324,19 @@ mod tests {
 
     #[tokio::test]
     async fn e2e_session_persists_episodes_to_memory() {
-        let provider = Arc::new(ScriptedProvider::new(vec![
-            end_turn_response("the answer is 42"),
-        ]));
+        let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
+            "the answer is 42",
+        )]));
 
         let memory = make_memory().await;
         let config = make_config(5);
 
         let agent = Agent::new(provider, Arc::clone(&memory), config);
 
-        agent.run_with_options(
-            "what is the meaning of life",
-            RunOptions::default(),
-        ).await.unwrap();
+        agent
+            .run_with_options("what is the meaning of life", RunOptions::default())
+            .await
+            .unwrap();
 
         let episodes = memory.search("meaning of life", 10).await.unwrap();
         assert!(
@@ -334,7 +352,9 @@ mod tests {
     #[tokio::test]
     async fn e2e_evolution_overlay_carried_into_second_session() {
         use super::ScriptedProviderCaptureSystem;
-        use harness_memory::{get_prompt_version_by_id, resolve_effective_overlay, EvolutionScope, ScopeKind};
+        use harness_memory::{
+            get_prompt_version_by_id, resolve_effective_overlay, EvolutionScope, ScopeKind,
+        };
 
         fn learning_scope_for_test() -> EvolutionScope {
             let key = std::env::current_dir()

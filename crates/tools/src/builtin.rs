@@ -5,6 +5,8 @@ use crate::registry::{ToolHandler, ToolOutput};
 use crate::schema::ToolSchema;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Echo tool - useful for testing the tool pipeline.
 pub struct EchoTool;
@@ -71,7 +73,8 @@ impl ToolHandler for GrepTool {
         ToolSchema {
             name: "grep".into(),
             description: "Search for a pattern in a file or directory. \
-                Returns matching lines with line numbers."
+                Returns matching lines with line numbers. \
+                Recursive searches skip target/, .git/, and node_modules/ and time out after 30s."
                 .into(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -105,15 +108,28 @@ impl ToolHandler for GrepTool {
         };
         let recursive = input["recursive"].as_bool().unwrap_or(false);
 
-        let mut cmd = std::process::Command::new("grep");
-        cmd.arg("-n"); // line numbers
-        if recursive {
-            cmd.arg("-r");
-        }
-        cmd.arg(&pattern).arg(&path);
+        use std::time::Duration;
 
-        match cmd.output() {
-            Ok(out) => {
+        let output = tokio::time::timeout(
+            Duration::from_secs(30),
+            tokio::task::spawn_blocking(move || {
+                let mut cmd = std::process::Command::new("grep");
+                cmd.arg("-n"); // line numbers
+                if recursive {
+                    cmd.arg("-r");
+                    // Otherwise recursive searches walk `target/` (huge binaries) and appear hung.
+                    for dir in ["target", ".git", "node_modules"] {
+                        cmd.arg("--exclude-dir").arg(dir);
+                    }
+                }
+                cmd.arg(&pattern).arg(&path);
+                cmd.output()
+            }),
+        )
+        .await;
+
+        match output {
+            Ok(Ok(Ok(out))) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 if out.status.success() {
@@ -124,7 +140,9 @@ impl ToolHandler for GrepTool {
                     ToolOutput::err(format!("grep failed: {stderr}"))
                 }
             }
-            Err(e) => ToolOutput::err(format!("failed to execute grep: {e}")),
+            Ok(Ok(Err(e))) => ToolOutput::err(format!("failed to execute grep: {e}")),
+            Ok(Err(e)) => ToolOutput::err(format!("grep task panic: {e}")),
+            Err(_) => ToolOutput::err("grep timed out after 30 seconds (try a narrower path)"),
         }
     }
 }
@@ -172,8 +190,8 @@ impl ToolHandler for ReadFileTool {
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
-    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep",
-    "bash", "curl", "jq",
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep", "bash",
+    "curl", "jq",
 ];
 
 fn is_env_assignment_token(token: &str) -> bool {
@@ -197,8 +215,7 @@ fn is_env_assignment_token(token: &str) -> bool {
 fn first_command_token(command: &str) -> &str {
     command
         .split_whitespace()
-        .skip_while(|token| is_env_assignment_token(token))
-        .next()
+        .find(|token| !is_env_assignment_token(token))
         .unwrap_or("")
 }
 
@@ -467,14 +484,99 @@ mod tests {
 // ---------------------------------------------------------------------------
 // Skill evolution tools
 // ---------------------------------------------------------------------------
-fn skills_dir() -> std::path::PathBuf {
-    if let Ok(override_dir) = std::env::var("ANVIL_SKILLS_DIR") {
-        return std::path::PathBuf::from(override_dir);
-    }
-    let base = std::env::var("HOME")
+
+fn home_dir_base() -> PathBuf {
+    std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(base).join(".anvil").join("skills")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Directory where `save_skill` / `refine_skill` write, and the first place we look for skills.
+fn primary_skills_dir() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("ANVIL_SKILLS_DIR") {
+        return PathBuf::from(override_dir);
+    }
+    home_dir_base().join(".anvil").join("skills")
+}
+
+fn append_unique_skill_root(dirs: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidate.is_dir() {
+        return;
+    }
+    let can = match candidate.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            dirs.push(candidate);
+            return;
+        }
+    };
+    for existing in dirs.iter() {
+        if let Ok(ec) = existing.canonicalize() {
+            if ec == can {
+                return;
+            }
+        }
+    }
+    dirs.push(candidate);
+}
+
+/// Roots scanned for `list_skills` / `read_skill`:
+/// primary (`~/.anvil/skills` or `ANVIL_SKILLS_DIR`), `<cwd>/.claude/skills`, optional catalog roots
+/// (`ANVIL_SKILLS_CATALOG` or `PAPERCLIP_SKILLS_CATALOG`), then entries in `ANVIL_SKILLS_EXTRA`
+/// (host path-list separator, same as `PATH`).
+///
+/// Under each root: top-level `*.md`, `name/SKILL.md`, and Paperclip-style `name/name.md`.
+fn skills_scan_dirs() -> Vec<PathBuf> {
+    let primary = primary_skills_dir();
+    let mut dirs = vec![primary.clone()];
+    if let Ok(cwd) = std::env::current_dir() {
+        let claude = cwd.join(".claude").join("skills");
+        if claude.is_dir() && claude != primary {
+            append_unique_skill_root(&mut dirs, claude);
+        }
+    }
+    for key in ["ANVIL_SKILLS_CATALOG", "PAPERCLIP_SKILLS_CATALOG"] {
+        if let Ok(p) = std::env::var(key) {
+            append_unique_skill_root(&mut dirs, PathBuf::from(p));
+        }
+    }
+    if let Ok(extra) = std::env::var("ANVIL_SKILLS_EXTRA") {
+        for part in std::env::split_paths(&extra) {
+            append_unique_skill_root(&mut dirs, part);
+        }
+    }
+    dirs
+}
+
+/// Resolve a skill file in scan order; first match wins.
+fn resolve_skill_path(name: &str) -> Option<PathBuf> {
+    for root in skills_scan_dirs() {
+        let flat = root.join(format!("{name}.md"));
+        if flat.is_file() {
+            return Some(flat);
+        }
+        let nested = root.join(name).join("SKILL.md");
+        if nested.is_file() {
+            return Some(nested);
+        }
+        let doubled = root.join(name).join(format!("{name}.md"));
+        if doubled.is_file() {
+            return Some(doubled);
+        }
+    }
+    None
+}
+
+/// Only bump `uses:` for skills stored under the primary dir (never mutate repo `.claude` copies).
+fn skill_path_allows_uses_update(path: &Path) -> bool {
+    let Ok(primary) = primary_skills_dir().canonicalize() else {
+        return false;
+    };
+    let Ok(p) = path.canonicalize() else {
+        return false;
+    };
+    p.starts_with(&primary)
 }
 fn parse_uses(c: &str) -> u64 {
     for line in c.lines() {
@@ -577,45 +679,92 @@ fn build_skill_file(
     )
 }
 
-/// List all skills stored in ~/.anvil/skills/
+/// List skills from the primary library, `./.claude/skills`, and optional catalog dirs (see `skills_scan_dirs`).
 pub struct ListSkillsTool;
 #[async_trait]
 impl ToolHandler for ListSkillsTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             name: "list_skills".into(),
-            description: "List all skills in the skill library. Returns a JSON array of objects with name, description, version, and uses fields.".into(),
+            description: "List discoverable skills: primary (~/.anvil/skills or ANVIL_SKILLS_DIR), ./.claude/skills, \
+                 ANVIL_SKILLS_CATALOG / PAPERCLIP_SKILLS_CATALOG, and ANVIL_SKILLS_EXTRA. \
+                 Each root may contain *.md, name/SKILL.md, or Paperclip-style name/name.md. \
+                 Earlier roots win on duplicate names. Returns JSON array of {name, description, version, uses}."
+                .into(),
             input_schema: serde_json::json!({"type":"object","properties":{},"required":[]}),
         }
     }
     async fn call(&self, _input: Value) -> ToolOutput {
-        let dir = skills_dir();
-        if !dir.exists() {
+        let mut by_name: HashMap<String, PathBuf> = HashMap::new();
+        for root in skills_scan_dirs() {
+            if !root.is_dir() {
+                continue;
+            }
+            let entries = match std::fs::read_dir(&root) {
+                Ok(e) => e,
+                Err(e) => return ToolOutput::err(format!("list_skills failed: {e}")),
+            };
+            let mut files_at_root: Vec<(String, PathBuf)> = Vec::new();
+            let mut dir_skills: Vec<(String, PathBuf)> = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                        let name = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if !name.is_empty() {
+                            files_at_root.push((name, path));
+                        }
+                    }
+                } else if path.is_dir() {
+                    let dir_name = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if dir_name.is_empty() {
+                        continue;
+                    }
+                    let skill_md = path.join("SKILL.md");
+                    let doubled = path.join(format!("{dir_name}.md"));
+                    let chosen = if skill_md.is_file() {
+                        Some(skill_md)
+                    } else if doubled.is_file() {
+                        Some(doubled)
+                    } else {
+                        None
+                    };
+                    if let Some(skill_path) = chosen {
+                        dir_skills.push((dir_name, skill_path));
+                    }
+                }
+            }
+            let file_names: HashSet<String> =
+                files_at_root.iter().map(|(n, _)| n.clone()).collect();
+            for (name, path) in files_at_root {
+                by_name.entry(name).or_insert(path);
+            }
+            for (name, path) in dir_skills {
+                if !file_names.contains(&name) {
+                    by_name.entry(name).or_insert(path);
+                }
+            }
+        }
+        if by_name.is_empty() {
             return ToolOutput::ok("[]");
         }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(e) => return ToolOutput::err(format!("list_skills failed: {e}")),
-        };
         let mut skills: Vec<serde_json::Value> = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            if name.is_empty() {
-                continue;
-            }
+        for (name, path) in by_name {
             let content = std::fs::read_to_string(&path).unwrap_or_default();
             let desc = parse_description(&content);
             let ver = parse_version(&content);
             let uses = parse_uses(&content);
-            skills.push(serde_json::json!({"name": name, "description": desc, "version": ver, "uses": uses}));
+            skills.push(
+                serde_json::json!({"name": name, "description": desc, "version": ver, "uses": uses}),
+            );
         }
         skills.sort_by(|a, b| {
             a["name"]
@@ -630,27 +779,39 @@ impl ToolHandler for ListSkillsTool {
     }
 }
 
-/// Read a skill from ~/.anvil/skills/<name>.md and increment its uses counter.
+/// Read a skill from the primary library or `./.claude/skills`; bumps `uses:` only for primary-library files.
 pub struct ReadSkillTool;
 #[async_trait]
 impl ToolHandler for ReadSkillTool {
     fn schema(&self) -> ToolSchema {
-        ToolSchema::simple("read_skill", "Read a skill by name from the skill library. Increments the uses counter. Returns the skill content.", &["name"])
+        ToolSchema::simple(
+            "read_skill",
+            "Read a skill by name (name.md, name/SKILL.md, or name/name.md under any scan root — see list_skills). \
+             Increments the uses counter only for files under the primary library path.",
+            &["name"],
+        )
     }
     async fn call(&self, input: Value) -> ToolOutput {
         let name = match input["name"].as_str() {
             Some(n) if !n.is_empty() => n.to_string(),
             _ => return ToolOutput::err("name is required"),
         };
-        let path = skills_dir().join(format!("{name}.md"));
+        let path = match resolve_skill_path(&name) {
+            Some(p) => p,
+            None => return ToolOutput::err(format!("skill not found: {name}")),
+        };
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => return ToolOutput::err(format!("skill not found: {name}")),
         };
-        let new_uses = parse_uses(&content) + 1;
-        let updated = update_frontmatter_field(&content, "uses", new_uses);
-        let _ = std::fs::write(&path, &updated);
-        ToolOutput::ok(updated)
+        if skill_path_allows_uses_update(&path) {
+            let new_uses = parse_uses(&content) + 1;
+            let updated = update_frontmatter_field(&content, "uses", new_uses);
+            let _ = std::fs::write(&path, &updated);
+            ToolOutput::ok(updated)
+        } else {
+            ToolOutput::ok(content)
+        }
     }
 }
 
@@ -680,7 +841,7 @@ impl ToolHandler for SaveSkillTool {
         };
         let description = input["description"].as_str().unwrap_or("").to_string();
         let content = input["content"].as_str().unwrap_or("").to_string();
-        let dir = skills_dir();
+        let dir = primary_skills_dir();
         if let Err(e) = std::fs::create_dir_all(&dir) {
             return ToolOutput::err(format!("failed to create skills dir: {e}"));
         }
@@ -737,7 +898,7 @@ impl ToolHandler for RefineSkillTool {
             Some(f) if !f.is_empty() => f.to_string(),
             _ => return ToolOutput::err("feedback is required"),
         };
-        let path = skills_dir().join(format!("{name}.md"));
+        let path = primary_skills_dir().join(format!("{name}.md"));
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => return ToolOutput::err(format!("skill not found: {name}")),
@@ -888,5 +1049,121 @@ mod skill_tests {
             .await;
         let out = RefineSkillTool.call(json!({"name":"nofb"})).await;
         assert!(out.is_error);
+    }
+
+    #[tokio::test]
+    async fn list_skills_merges_claude_skills_from_cwd() {
+        let guard = get_env_lock().lock().await;
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let primary =
+            std::env::temp_dir().join(format!("anvil_skill_pri_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(&primary).unwrap();
+        std::env::set_var("ANVIL_SKILLS_DIR", &primary);
+        std::fs::write(
+            primary.join("local-only.md"),
+            "---\nname: local-only\ndescription: primary\nversion: 1\nuses: 0\n---\n\nx\n",
+        )
+        .unwrap();
+
+        let ws = std::env::temp_dir().join(format!("anvil_skill_ws_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(ws.join(".claude").join("skills").join("claude-nested")).unwrap();
+        std::fs::write(
+            ws.join(".claude/skills/claude-nested/SKILL.md"),
+            "---\nname: claude-nested\ndescription: from claude\nversion: 1\nuses: 0\n---\n\ny\n",
+        )
+        .unwrap();
+
+        let old = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&ws).unwrap();
+        let out = ListSkillsTool.call(json!({})).await;
+        std::env::set_current_dir(old).unwrap();
+        std::env::remove_var("ANVIL_SKILLS_DIR");
+        drop(guard);
+
+        assert!(!out.is_error, "{}", out.content);
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&out.content).unwrap();
+        let names: Vec<_> = arr.iter().filter_map(|v| v["name"].as_str()).collect();
+        assert!(names.contains(&"local-only"), "{names:?}");
+        assert!(names.contains(&"claude-nested"), "{names:?}");
+    }
+
+    #[tokio::test]
+    async fn list_skills_finds_paperclip_style_name_name_md() {
+        let guard = get_env_lock().lock().await;
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let catalog =
+            std::env::temp_dir().join(format!("anvil_skill_ppcat_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(catalog.join("wiki-skill")).unwrap();
+        std::fs::write(
+            catalog.join("wiki-skill/wiki-skill.md"),
+            "---\nname: wiki-skill\ndescription: doubled\nversion: 1\nuses: 0\n---\n\nk\n",
+        )
+        .unwrap();
+        std::env::set_var("ANVIL_SKILLS_CATALOG", &catalog);
+        let out = ListSkillsTool.call(json!({})).await;
+        std::env::remove_var("ANVIL_SKILLS_CATALOG");
+        drop(guard);
+
+        assert!(!out.is_error, "{}", out.content);
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&out.content).unwrap();
+        assert!(arr.iter().any(|e| e["name"] == "wiki-skill"), "{arr:?}");
+    }
+
+    #[tokio::test]
+    async fn read_skill_reads_paperclip_style_name_name_md() {
+        let guard = get_env_lock().lock().await;
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let catalog =
+            std::env::temp_dir().join(format!("anvil_skill_ppread_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(catalog.join("wiki-skill")).unwrap();
+        std::fs::write(
+            catalog.join("wiki-skill/wiki-skill.md"),
+            "---\nname: wiki-skill\ndescription: doubled\nversion: 1\nuses: 0\n---\n\nk\n",
+        )
+        .unwrap();
+        std::env::set_var("ANVIL_SKILLS_CATALOG", &catalog);
+        let out = ReadSkillTool.call(json!({"name": "wiki-skill"})).await;
+        std::env::remove_var("ANVIL_SKILLS_CATALOG");
+        drop(guard);
+
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("doubled"),
+            "expected description in body: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn read_skill_from_claude_does_not_increment_uses_on_disk() {
+        let guard = get_env_lock().lock().await;
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let primary =
+            std::env::temp_dir().join(format!("anvil_skill_rdc_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(&primary).unwrap();
+        std::env::set_var("ANVIL_SKILLS_DIR", &primary);
+
+        let ws = std::env::temp_dir().join(format!("anvil_skill_rws_{id}_{}", std::process::id()));
+        std::fs::create_dir_all(ws.join(".claude").join("skills").join("read-only-skill")).unwrap();
+        let skill_path = ws.join(".claude/skills/read-only-skill/SKILL.md");
+        std::fs::write(
+            &skill_path,
+            "---\nname: read-only-skill\ndescription: ro\nversion: 1\nuses: 0\n---\n\nbody\n",
+        )
+        .unwrap();
+
+        let old = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&ws).unwrap();
+        let out = ReadSkillTool.call(json!({"name": "read-only-skill"})).await;
+        std::env::set_current_dir(old).unwrap();
+        std::env::remove_var("ANVIL_SKILLS_DIR");
+        drop(guard);
+
+        assert!(!out.is_error, "{}", out.content);
+        let disk = std::fs::read_to_string(&skill_path).unwrap();
+        assert!(
+            disk.contains("uses: 0"),
+            "repo-style skill should not be mutated: {disk}"
+        );
     }
 }

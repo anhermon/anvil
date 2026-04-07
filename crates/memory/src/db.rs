@@ -86,6 +86,80 @@ impl MemoryDb {
         .execute(pool)
         .await?;
 
+        // 2026-04-07: learning-loop persistence artifacts for prompt evolution.
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_prompt_versions (
+                id                TEXT PRIMARY KEY NOT NULL,
+                session_id        TEXT NOT NULL,
+                scope_kind        TEXT NOT NULL,
+                scope_key         TEXT,
+                base_prompt_hash  TEXT NOT NULL,
+                candidate_prompt  TEXT NOT NULL,
+                candidate_diff    TEXT NOT NULL,
+                score_before      REAL NOT NULL,
+                score_after       REAL,
+                active            INTEGER NOT NULL DEFAULT 0,
+                replaced_by       TEXT,
+                created_at        TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_evolution_prompt_scope_created ON evolution_prompt_versions(scope_kind, scope_key, created_at DESC)",
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_evolution_prompt_active ON evolution_prompt_versions(active, created_at DESC)",
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_validation_votes (
+                id            TEXT PRIMARY KEY NOT NULL,
+                record_id     TEXT NOT NULL,
+                candidate_id  TEXT NOT NULL,
+                validator     TEXT NOT NULL,
+                vote_kind     TEXT NOT NULL,
+                reason        TEXT,
+                created_at    TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_evolution_votes_record ON evolution_validation_votes(record_id)",
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_settings (
+                key         TEXT PRIMARY KEY NOT NULL,
+                value       TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS evolution_active_scope (
+                scope_kind               TEXT NOT NULL,
+                scope_key                TEXT,
+                active_prompt_version_id TEXT NOT NULL,
+                updated_at               TEXT NOT NULL,
+                PRIMARY KEY (scope_kind, scope_key)
+            )"#,
+        )
+        .execute(pool)
+        .await?;
+
         sqlx::query(
             r#"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
                 id UNINDEXED,
@@ -361,5 +435,13 @@ mod tests {
             "all-punctuation query should not fail: {results:?}"
         );
         assert_eq!(results.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn run_migrations_is_idempotent() {
+        let db = MemoryDb::in_memory().await.expect("in-memory db");
+        MemoryDb::run_migrations(db.pool())
+            .await
+            .expect("second migration run must succeed");
     }
 }

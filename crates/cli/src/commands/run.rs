@@ -165,7 +165,12 @@ impl UiHook for JsonHook {
             guard.remove(tool_use_id)
         };
 
-        let (tool_name, input) = entry.unwrap_or_else(|| ("unknown".to_string(), serde_json::Value::Object(Default::default())));
+        let (tool_name, input) = entry.unwrap_or_else(|| {
+            (
+                "unknown".to_string(),
+                serde_json::Value::Object(Default::default()),
+            )
+        });
         let status = if is_error { "error" } else { "completed" };
 
         Self::emit(&serde_json::json!({
@@ -348,4 +353,3 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
     Ok(())
 }
-

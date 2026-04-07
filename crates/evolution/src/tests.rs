@@ -5,7 +5,7 @@ mod integration {
     use std::sync::Arc;
 
     use harness_core::{
-        message::{Message, MessageContent, Role},
+        message::{ContentBlock, Message, MessageContent, Role},
         session::{Session, SessionStatus},
     };
     use harness_memory::MemoryDb;
@@ -93,7 +93,7 @@ mod integration {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn failed_session_skips_evolution() {
+    async fn failed_session_scores_zero_and_may_apply_prompt_patch() {
         let memory = Arc::new(MemoryDb::in_memory().await.expect("in-memory db"));
         let engine = default_engine(Arc::clone(&memory));
 
@@ -103,15 +103,50 @@ mod integration {
             .await
             .expect("must not error");
 
-        // score = 0.0 → generator produces a candidate (score < 0.75)
-        // but the candidate should pass all 5 default validators and be Applied.
-        // (The failed session lowers the score but doesn't block the candidate.)
+        // Critic returns 0.0 for non-Done status; generator usually runs (< 0.75).
         assert!(
             matches!(
                 outcome,
                 EvolutionOutcome::Applied { .. } | EvolutionOutcome::Skipped { .. }
             ),
             "unexpected outcome: {outcome:?}"
+        );
+    }
+
+    /// Tool results that indicate sandbox friction should cap the critic score so evolution
+    /// can append discovery-oriented rules (not task-specific spoon-feeding).
+    #[tokio::test]
+    async fn sandbox_friction_triggers_discovery_overlay() {
+        let memory = Arc::new(MemoryDb::in_memory().await.expect("in-memory db"));
+        let engine = default_engine(Arc::clone(&memory));
+
+        let mut session = Session::new("deliver results to a file");
+        session.iteration = 1;
+        session.messages.push(Message {
+            role: Role::Tool,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: "tu_1".to_string(),
+                content: "absolute paths are not allowed".to_string(),
+            }]),
+        });
+        session.messages.push(Message {
+            role: Role::Assistant,
+            content: MessageContent::Text("done".to_string()),
+        });
+        session.finish(SessionStatus::Done);
+
+        let outcome = engine
+            .evolve(&session, "You are a helpful assistant.")
+            .await
+            .expect("evolution cycle must not error");
+
+        let EvolutionOutcome::Applied { candidate, .. } = outcome else {
+            panic!("expected Applied after sandbox friction, got {outcome:?}");
+        };
+        assert!(
+            candidate.prompt.contains("Workspace file tools"),
+            "expected sandbox discovery hint in overlay: {}",
+            candidate.prompt
         );
     }
 
@@ -163,7 +198,7 @@ mod integration {
                 Arc::new(AlwaysAcceptValidator),
                 Arc::new(AlwaysAcceptValidator),
             ],
-            applier: Arc::new(crate::defaults::DefaultApplier),
+            applier: Arc::new(crate::defaults::DefaultApplier::new(Arc::clone(&memory))),
             memory,
         };
 
@@ -200,7 +235,7 @@ mod integration {
                 Arc::new(AlwaysAcceptValidator),
                 Arc::new(AlwaysAcceptValidator),
             ],
-            applier: Arc::new(crate::defaults::DefaultApplier),
+            applier: Arc::new(crate::defaults::DefaultApplier::new(Arc::clone(&memory))),
             memory,
         };
 

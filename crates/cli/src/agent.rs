@@ -182,9 +182,17 @@ impl Agent {
                  Always prefer using tools (read, write, bash, grep) to explore the environment and execute actions. \
                  Note: To use 'ls', you must use the 'bash' tool (e.g. bash(command=\"ls\")). \
                  \n\n\
+                 ## Workspace sandbox\n\n\
+                 Read and write only accept relative paths under this repo; absolute paths are rejected. \
+                 Bash only runs if the command starts with an allowlisted program (see tool errors). \
+                 When a tool fails, change strategy—do not repeat the same invalid pattern. \
+                 \n\n\
                  ## Skills\n\n\
-                 You have a skill library stored at ~/.anvil/skills/. Skills are Markdown files \
-                 containing instructions, workflows, and domain knowledge that guide your behaviour. \
+                 Skills are Markdown files (with optional frontmatter) discovered via list_skills(): \
+                 the primary library lives under ~/.anvil/skills/ (or ANVIL_SKILLS_DIR), then \
+                 ./.claude/skills/, then optional catalog dirs (ANVIL_SKILLS_CATALOG / PAPERCLIP_SKILLS_CATALOG, \
+                 ANVIL_SKILLS_EXTRA; Paperclip heartbeat may set the catalog from ~/.paperclip/instances/.../skills/<agent>/__catalog__). \
+                 Layouts: name.md, name/SKILL.md, or Paperclip name/name.md. \
                  At the start of every session, call list_skills() to see what skills are available. \
                  When a user's request matches a skill's domain, call read_skill(name) to load the \
                  full instructions and follow them. \n\n\
@@ -197,8 +205,13 @@ impl Agent {
             )
             .to_string();
 
+        let learning_scope = self.resolve_learning_scope();
+        let base_with_overlay = self
+            .apply_learned_overlay(&base_system, &learning_scope)
+            .await;
+
         let system_with_memory = self
-            .build_system_prompt_with_memory(&base_system, goal)
+            .build_system_prompt_with_memory(&base_with_overlay, goal)
             .await;
 
         let mut messages: Vec<Message> = Vec::new();
@@ -280,11 +293,7 @@ impl Agent {
                     }
 
                     // Persist final assistant turn to memory.
-                    let ep = harness_memory::Episode::turn(
-                        session.id,
-                        "assistant",
-                        &final_text,
-                    );
+                    let ep = harness_memory::Episode::turn(session.id, "assistant", &final_text);
                     let sn = opts.session_name.as_deref();
                     self.memory.insert_named(&ep, sn).await?;
 
@@ -293,7 +302,8 @@ impl Agent {
                     self.memory.insert_named(&goal_ep, sn).await?;
 
                     // Notify hook that the session is complete.
-                    self.hook.on_result(&final_text, false, &session.id.to_string());
+                    self.hook
+                        .on_result(&final_text, false, &session.id.to_string());
 
                     session.finish(SessionStatus::Done);
                     break;
@@ -302,10 +312,10 @@ impl Agent {
                 StopReason::ToolUse => {
                     // Extract every ToolUse block from the assistant response.
                     // Also emit any text blocks that appear alongside tool calls.
-                    let (tool_calls, text_blocks): (Vec<(String, String, serde_json::Value)>, Vec<String>) = match &response
-                        .message
-                        .content
-                    {
+                    let (tool_calls, text_blocks): (
+                        Vec<(String, String, serde_json::Value)>,
+                        Vec<String>,
+                    ) = match &response.message.content {
                         MessageContent::Blocks(blocks) => {
                             let tools = blocks
                                 .iter()
@@ -321,7 +331,11 @@ impl Agent {
                                 .iter()
                                 .filter_map(|b| {
                                     if let ContentBlock::Text { text } = b {
-                                        if !text.is_empty() { Some(text.clone()) } else { None }
+                                        if !text.is_empty() {
+                                            Some(text.clone())
+                                        } else {
+                                            None
+                                        }
                                     } else {
                                         None
                                     }
@@ -394,7 +408,11 @@ impl Agent {
                             warn!(tool = %name, "tool returned error: {}", output.content);
                         }
                         self.hook.on_tool_result(&output.content);
-                        self.hook.on_tool_result_full(&tool_use_id, &output.content, output.is_error);
+                        self.hook.on_tool_result_full(
+                            &tool_use_id,
+                            &output.content,
+                            output.is_error,
+                        );
                         result_blocks.push(ContentBlock::ToolResult {
                             tool_use_id,
                             content: output.content,
@@ -415,14 +433,15 @@ impl Agent {
         // Post-session evolution hook (compiled only when the `evolution` feature is enabled).
         #[cfg(feature = "evolution")]
         if self.depth == 0 {
-            let prompt = self
-                .config
-                .agent
-                .system_prompt
-                .as_deref()
-                .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.");
             let engine = harness_evolution::defaults::default_engine(Arc::clone(&self.memory));
-            match engine.evolve(&session, prompt).await {
+            let evo_scope = harness_evolution::types::EvolutionScope {
+                kind: learning_scope.kind.as_str().to_string(),
+                key: learning_scope.key.clone(),
+            };
+            match engine
+                .evolve_with_scope(&session, &base_with_overlay, &evo_scope)
+                .await
+            {
                 Ok(outcome) => {
                     info!(?outcome, "evolution cycle complete");
                 }
@@ -462,6 +481,45 @@ impl Agent {
                 base_system.to_string()
             }
         }
+    }
+
+    fn resolve_learning_scope(&self) -> harness_memory::EvolutionScope {
+        let key = std::env::current_dir()
+            .ok()
+            .and_then(|p| std::fs::canonicalize(p).ok())
+            .map(|p| p.to_string_lossy().to_string());
+        match key {
+            Some(scope_key) => harness_memory::EvolutionScope {
+                kind: harness_memory::ScopeKind::Workdir,
+                key: Some(scope_key),
+            },
+            None => harness_memory::EvolutionScope::global(),
+        }
+    }
+
+    async fn apply_learned_overlay(
+        &self,
+        base_system: &str,
+        scope: &harness_memory::EvolutionScope,
+    ) -> String {
+        let enabled = harness_memory::is_evolution_enabled(self.memory.pool())
+            .await
+            .unwrap_or(true);
+        if !enabled {
+            return base_system.to_string();
+        }
+
+        let resolved = harness_memory::resolve_effective_overlay(self.memory.pool(), scope)
+            .await
+            .ok()
+            .flatten();
+        if let Some(overlay) = resolved {
+            return format!(
+                "{base_system}\n\n[LearnedOverlay]\n{}\n",
+                overlay.version.candidate_prompt
+            );
+        }
+        base_system.to_string()
     }
 
     /// Spawn a nested sub-agent to handle a delegated goal.

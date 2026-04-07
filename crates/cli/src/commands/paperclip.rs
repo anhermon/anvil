@@ -14,8 +14,13 @@
 //! | `PAPERCLIP_AGENT_ID`    | Agent UUID                                          |
 //! | `PAPERCLIP_COMPANY_ID`  | Company UUID                                        |
 //! | `PAPERCLIP_RUN_ID`      | Current run ID (attached to mutating requests)      |
+//! | `PAPERCLIP_INSTANCE`    | Paperclip instance dir segment (default: `default`) — used to locate `skills/<agent>/__catalog__` |
+//! | `ANVIL_SKILLS_CATALOG`  | Extra skill root (optional). If unset at heartbeat start and `~/.paperclip/instances/<instance>/skills/<PAPERCLIP_AGENT_ID>/__catalog__` exists, it is set automatically. |
+//! | `PAPERCLIP_SKILLS_CATALOG` | Alias for an extra catalog root read by `list_skills` / `read_skill` (optional). |
+//! | `ANVIL_SKILLS_EXTRA`    | Host path-list (same separator as `PATH`) of additional skill directories. |
 //! | `ANTHROPIC_API_KEY`     | Anthropic API key for the claude provider           |
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -94,6 +99,31 @@ struct HeartbeatCmd {
 
 // ── command entry point ────────────────────────────────────────────────────────
 
+/// If no catalog env is set, point `ANVIL_SKILLS_CATALOG` at the Paperclip agent `__catalog__` dir when present.
+fn inject_paperclip_skills_catalog(agent_id: &str) {
+    if std::env::var_os("ANVIL_SKILLS_CATALOG").is_some()
+        || std::env::var_os("PAPERCLIP_SKILLS_CATALOG").is_some()
+    {
+        return;
+    }
+    let instance = std::env::var("PAPERCLIP_INSTANCE").unwrap_or_else(|_| "default".into());
+    let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    else {
+        return;
+    };
+    let catalog = home
+        .join(".paperclip/instances")
+        .join(instance)
+        .join("skills")
+        .join(agent_id)
+        .join("__catalog__");
+    if catalog.is_dir() {
+        std::env::set_var("ANVIL_SKILLS_CATALOG", catalog.as_os_str());
+    }
+}
+
 pub async fn execute(args: PaperclipArgs) -> Result<()> {
     let api_key = args
         .api_key
@@ -118,6 +148,7 @@ pub async fn execute(args: PaperclipArgs) -> Result<()> {
             let agent_id = args
                 .agent_id
                 .context("PAPERCLIP_AGENT_ID required for heartbeat")?;
+            inject_paperclip_skills_catalog(&agent_id);
             let company_id = args
                 .company_id
                 .context("PAPERCLIP_COMPANY_ID required for heartbeat")?;
@@ -264,6 +295,36 @@ impl TaskExecutor for AnvilExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn inject_paperclip_skills_catalog_sets_env_when_layout_exists() {
+        let _lock = HOME_LOCK.lock().expect("home test lock");
+        let saved_home = std::env::var_os("HOME");
+        let tmp =
+            std::env::temp_dir().join(format!("anvil_pc_inj_{}", std::process::id()));
+        let catalog = tmp
+            .join(".paperclip/instances/default/skills/test-catalog-agent/__catalog__");
+        std::fs::create_dir_all(&catalog).expect("mkdir catalog");
+        std::env::set_var("HOME", &tmp);
+        std::env::remove_var("ANVIL_SKILLS_CATALOG");
+        std::env::remove_var("PAPERCLIP_SKILLS_CATALOG");
+
+        super::inject_paperclip_skills_catalog("test-catalog-agent");
+
+        assert_eq!(
+            std::env::var("ANVIL_SKILLS_CATALOG").expect("catalog env"),
+            catalog.to_string_lossy()
+        );
+        std::env::remove_var("ANVIL_SKILLS_CATALOG");
+        match saved_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn extract_goal_uses_objective_section() {

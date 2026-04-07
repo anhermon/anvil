@@ -82,3 +82,46 @@ tasks:
       BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
     cmds:
       - cargo run --release --bin anvil-bench -- --iterations {{.ITERATIONS}} --model {{.MODEL}} --base-url {{.BASE_URL}} --max-turns 20
+
+  worktree:self-improve:
+    desc: Create an isolated git worktree on a new branch for self-improve / benchmark loops
+    vars:
+      BRANCH: '{{.BRANCH | default "experiment/glm47-self-improve"}}'
+      WT_PATH: '{{.WT_PATH | default "../anvil-glm47-loop"}}'
+    cmds:
+      - git worktree add -b {{.BRANCH}} {{.WT_PATH}} HEAD
+
+  bench:capability-md:
+    desc: Run anvil-bench against Ollama and write Markdown capability snapshot under target/benchmark_reports/
+    vars:
+      ITERATIONS: '{{.ITERATIONS | default 5}}'
+      MODEL: '{{.MODEL | default "glm-4.7-lite"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+      TIER: '{{.TIER | default "default"}}'
+    cmds:
+      - mkdir -p target/benchmark_reports
+      - |
+        set -euo pipefail
+        EXTRA=""
+        if [ "{{.TIER}}" = "hard" ]; then EXTRA="--tier hard"; fi
+        cargo run --release -p harness-benchmark --bin anvil-bench -- \
+          --iterations {{.ITERATIONS}} --model {{.MODEL}} --base-url {{.BASE_URL}} \
+          $EXTRA \
+          --summary-md target/benchmark_reports/capability.md
+
+  self-improve:loop:
+    desc: anvil (Ollama) edits repo → gates → benchmark; on strictly higher pass rate, auto-commit (see scripts/self_improve_loop.sh)
+    vars:
+      LOOPS: '{{.LOOPS | default 3}}'
+      MODEL: '{{.MODEL | default "glm-4.7-lite"}}'
+      BENCH_ITER: '{{.BENCH_ITER | default 3}}'
+      TIER: '{{.TIER | default "default"}}'
+      BASE_URL: '{{.BASE_URL | default "http://localhost:11434"}}'
+    env:
+      LOOPS: '{{.LOOPS}}'
+      MODEL: '{{.MODEL}}'
+      BENCH_ITER: '{{.BENCH_ITER}}'
+      TIER: '{{.TIER}}'
+      BENCH_BASE_URL: '{{.BASE_URL}}'
+    cmds:
+      - bash scripts/self_improve_loop.sh

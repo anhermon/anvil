@@ -15,6 +15,52 @@ use crate::{
     types::{EvolutionRecord, PromptCandidate, PromptScore, SessionSummary, ValidationVote},
 };
 
+/// Appended to the system prompt when evolution detects sandbox or policy friction.
+/// Kept principle-based so the model discovers specifics from tool errors and schemas,
+/// not hard-coded task answers.
+const SANDBOX_DISCOVERY_HINT: &str = "\n\n\
+When tools fail, read the error and your tool descriptions, then adapt—do not repeat the same disallowed pattern. \
+Workspace file tools accept relative paths under the project; absolute paths and /tmp-style locations are rejected. \
+For bash, the command must begin with an allowlisted program (see the bash tool description); use dedicated tools \
+(`read`, `write`, `grep`, etc.) when they cover the job. Prefer narrowing search paths over brute-force repository scans.";
+
+fn count_sandbox_tool_rejections(session: &Session) -> usize {
+    use harness_core::message::{ContentBlock, MessageContent, Role};
+
+    let mut n = 0;
+    for msg in &session.messages {
+        if msg.role != Role::Tool {
+            continue;
+        }
+        let MessageContent::Blocks(blocks) = &msg.content else {
+            continue;
+        };
+        for b in blocks {
+            let ContentBlock::ToolResult { content, .. } = b else {
+                continue;
+            };
+            if tool_result_suggests_sandbox_friction(content) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+fn tool_result_suggests_sandbox_friction(content: &str) -> bool {
+    let c = content.to_ascii_lowercase();
+    [
+        "absolute paths are not allowed",
+        "path traversal",
+        "command not allowed",
+        "timed out after",
+        "only [cargo,",
+        "grep timed out",
+    ]
+    .into_iter()
+    .any(|needle| c.contains(needle))
+}
+
 // ---------------------------------------------------------------------------
 // DefaultObserver
 // ---------------------------------------------------------------------------
@@ -58,13 +104,16 @@ impl Observer for DefaultObserver {
             "observer: summary extracted"
         );
 
+        let tool_rejection_count = count_sandbox_tool_rejections(session);
+
         Ok(SessionSummary {
             session_id: session.id,
             goal: session.goal.clone(),
             outcome,
             iteration_count: session.iteration,
-            succeeded: session.is_done(),
+            succeeded: session.status == harness_core::session::SessionStatus::Done,
             tool_call_count,
+            tool_rejection_count,
         })
     }
 }
@@ -106,11 +155,19 @@ impl Critic for DefaultCritic {
         // Slight bonus for a non-trivially long system prompt
         let prompt_bonus: f64 = if current_prompt.len() > 50 { 0.05 } else { 0.0 };
 
-        let score = (efficiency + prompt_bonus).min(1.0);
+        let mut score = (efficiency + prompt_bonus).min(1.0);
+
+        // Any sandbox/policy tool friction should open room for a discovery-oriented overlay,
+        // even when the run was short on iterations.
+        if summary.tool_rejection_count > 0 {
+            score = score.min(0.72);
+        }
+
         let rationale = format!(
-            "efficiency={efficiency:.2} (iterations={}), prompt_len={}",
+            "efficiency={efficiency:.2} (iterations={}), prompt_len={}, tool_rejections={}",
             summary.iteration_count,
-            current_prompt.len()
+            current_prompt.len(),
+            summary.tool_rejection_count
         );
 
         Ok(PromptScore { score, rationale })
@@ -140,16 +197,31 @@ impl Generator for DefaultGenerator {
             return Ok(vec![]);
         }
 
-        let hint = if summary.iteration_count > 5 {
+        let sandbox_block = if summary.tool_rejection_count > 0 {
+            SANDBOX_DISCOVERY_HINT
+        } else {
+            ""
+        };
+
+        let general_hint = if summary.iteration_count > 5 {
             "\n\nBe concise and minimize the number of turns needed to complete the task."
         } else {
             "\n\nWhen you have enough information, respond directly without asking unnecessary questions."
         };
 
+        let description = if summary.tool_rejection_count > 0 {
+            format!(
+                "sandbox discovery + conciseness (score={:.2}, tool_errors={})",
+                score.score, summary.tool_rejection_count
+            )
+        } else {
+            format!("add conciseness hint (session score={:.2})", score.score)
+        };
+
         let candidate = PromptCandidate {
             id: Uuid::new_v4(),
-            prompt: format!("{current_prompt}{hint}"),
-            description: format!("add conciseness hint (session score={:.2})", score.score),
+            prompt: format!("{current_prompt}{sandbox_block}{general_hint}"),
+            description,
         };
 
         Ok(vec![candidate])
@@ -211,19 +283,68 @@ impl Validator for DefaultValidator {
 
 /// No-op applier: the engine already persists the record via the memory pool.
 /// Custom implementations may patch a live config file here.
-pub struct DefaultApplier;
+pub struct DefaultApplier {
+    memory: Arc<MemoryDb>,
+}
+
+impl DefaultApplier {
+    pub fn new(memory: Arc<MemoryDb>) -> Self {
+        Self { memory }
+    }
+}
 
 #[async_trait]
 impl Applier for DefaultApplier {
     async fn apply(
         &self,
-        _candidate: &PromptCandidate,
-        _record: &EvolutionRecord,
+        candidate: &PromptCandidate,
+        record: &EvolutionRecord,
+        scope: &crate::types::EvolutionScope,
+        current_prompt: &str,
     ) -> anyhow::Result<()> {
-        // The EvolutionEngine already persists the record via persist_record.
-        // DefaultApplier is a logging-only no-op; it does not patch config on disk.
-        Ok(())
+        let base_prompt_hash = stable_prompt_hash(current_prompt);
+        let candidate_diff = summarize_diff(current_prompt, &candidate.prompt);
+        let version_id = candidate.id.to_string();
+        let session_id = record.session_id.to_string();
+        let created_at = record.created_at.to_rfc3339();
+        let scope_key = scope.key.as_deref();
+        let input = harness_memory::PromptVersionInput {
+            id: &version_id,
+            session_id: &session_id,
+            scope_kind: &scope.kind,
+            scope_key,
+            base_prompt_hash: &base_prompt_hash,
+            candidate_prompt: &candidate.prompt,
+            candidate_diff: &candidate_diff,
+            score_before: record.prompt_score,
+            score_after: None,
+            created_at: &created_at,
+        };
+        harness_memory::insert_prompt_version_and_activate(self.memory.pool(), &input).await
     }
+}
+
+fn stable_prompt_hash(input: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    input.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+fn summarize_diff(old_prompt: &str, new_prompt: &str) -> String {
+    if new_prompt == old_prompt {
+        return "no changes".to_string();
+    }
+    if let Some(suffix) = new_prompt.strip_prefix(old_prompt) {
+        return format!("appended:\n{}", suffix.trim());
+    }
+    format!(
+        "old_len={} new_len={}\n--- old ---\n{}\n--- new ---\n{}",
+        old_prompt.len(),
+        new_prompt.len(),
+        old_prompt.lines().take(20).collect::<Vec<_>>().join("\n"),
+        new_prompt.lines().take(20).collect::<Vec<_>>().join("\n")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +366,7 @@ pub fn default_engine(memory: Arc<MemoryDb>) -> crate::engine::EvolutionEngine {
             Arc::new(DefaultValidator::new("format")),
             Arc::new(DefaultValidator::new("relevance")),
         ],
-        applier: Arc::new(DefaultApplier),
+        applier: Arc::new(DefaultApplier::new(Arc::clone(&memory))),
         memory,
     }
 }

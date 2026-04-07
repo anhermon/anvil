@@ -1,0 +1,16 @@
+./crates/benchmark/src/main.rs
+./crates/benchmark/src/runner.rs
+./crates/benchmark/src/tasks.rs
+./crates/cli/src/agent.rs
+./crates/cli/src/commands/config.rs
+./crates/cli/src/commands/eval.rs
+./crates/cli/src/commands/paperclip.rs
+./crates/cli/src/commands/run.rs
+./crates/cli/tests/e2e_tests.rs
+./crates/core/src/config.rs
+./crates/core/src/error.rs
+./crates/core/src/provider.rs
+./crates/core/src/providers/claude.rs
+./crates/core/src/providers/claude_code.rs
+./crates/core/src/providers/mod.rs
+./crates/core/src/providers/ollama.rs

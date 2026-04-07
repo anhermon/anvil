@@ -64,7 +64,10 @@ to this path relative to the repo root: {}",
 fn expected_sorted_crate_dir_names() -> Result<Vec<String>, String> {
     let crates = std::path::Path::new("crates");
     if !crates.is_dir() {
-        return Err(format!("{} is not a directory (run anvil-bench from repo root)", crates.display()));
+        return Err(format!(
+            "{} is not a directory (run anvil-bench from repo root)",
+            crates.display()
+        ));
     }
     let mut names: Vec<String> = std::fs::read_dir(crates)
         .map_err(|e| format!("read_dir crates: {e}"))?
@@ -143,11 +146,7 @@ pub const MULTI_TOOL_TASK: BenchmarkTask = BenchmarkTask {
     goal: "(legacy; use goal_for_run)",
     expected_tool_calls_min: 2,
     evaluate: |session: &Session, ctx: &TaskEvalContext| {
-        let final_text = session
-            .messages
-            .last()
-            .and_then(|m| m.text())
-            .unwrap_or("");
+        let final_text = session.messages.last().and_then(|m| m.text()).unwrap_or("");
 
         let path = ctx
             .multi_tool_output
@@ -209,7 +208,9 @@ pub const CRATE_DIRS_MANIFEST: BenchmarkTask = BenchmarkTask {
             .iter()
             .filter(|m| matches!(m.role, harness_core::message::Role::Assistant))
             .flat_map(|m| match &m.content {
-                harness_core::message::MessageContent::Blocks(blocks) => blocks.iter().collect::<Vec<_>>(),
+                harness_core::message::MessageContent::Blocks(blocks) => {
+                    blocks.iter().collect::<Vec<_>>()
+                }
                 _ => vec![],
             })
             .filter(|b| matches!(b, harness_core::message::ContentBlock::ToolUse { .. }))
@@ -272,6 +273,17 @@ pub fn tasks_for_tier(tier: BenchTier) -> &'static [BenchmarkTask] {
     }
 }
 
+/// Human-readable difficulty for capability reports (`easy` → `hard`).
+pub fn task_difficulty(task_name: &str) -> &'static str {
+    match task_name {
+        "tool_call_basic" => "easy",
+        "summarize_text" => "easy",
+        "multi_tool_task" => "medium",
+        "crate_dirs_manifest" => "hard",
+        _ => "unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +292,12 @@ mod tests {
     fn tier_task_counts() {
         assert_eq!(tasks_for_tier(BenchTier::Default).len(), 3);
         assert_eq!(tasks_for_tier(BenchTier::Hard).len(), 4);
+    }
+
+    #[test]
+    fn task_difficulty_labels() {
+        assert_eq!(task_difficulty("tool_call_basic"), "easy");
+        assert_eq!(task_difficulty("crate_dirs_manifest"), "hard");
+        assert_eq!(task_difficulty("unknown_task"), "unknown");
     }
 }

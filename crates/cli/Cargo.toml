@@ -8,7 +8,12 @@ license.workspace = true
 name = "anvil"
 path = "src/main.rs"
 
+[lib]
+name = "harness_cli"
+path = "src/lib.rs"
+
 [features]
+default = ["evolution"]
 evolution = ["dep:harness-evolution"]
 
 [dependencies]
@@ -33,3 +38,6 @@ console = "0.15"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

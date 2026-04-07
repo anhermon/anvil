@@ -17,7 +17,9 @@
 use async_trait::async_trait;
 use harness_core::session::Session;
 
-use crate::types::{EvolutionRecord, PromptCandidate, PromptScore, SessionSummary, ValidationVote};
+use crate::types::{
+    EvolutionRecord, EvolutionScope, PromptCandidate, PromptScore, SessionSummary, ValidationVote,
+};
 
 /// **Gate 1 – Observer**: examine a completed session and extract a summary.
 #[async_trait]
@@ -72,5 +74,7 @@ pub trait Applier: Send + Sync + 'static {
         &self,
         candidate: &PromptCandidate,
         record: &EvolutionRecord,
+        scope: &EvolutionScope,
+        current_prompt: &str,
     ) -> anyhow::Result<()>;
 }
