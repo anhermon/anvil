@@ -11,6 +11,22 @@ mod runner;
 mod scoring;
 mod tasks;
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
+enum BenchTierArg {
+    #[default]
+    Default,
+    Hard,
+}
+
+impl From<BenchTierArg> for tasks::BenchTier {
+    fn from(value: BenchTierArg) -> Self {
+        match value {
+            BenchTierArg::Default => tasks::BenchTier::Default,
+            BenchTierArg::Hard => tasks::BenchTier::Hard,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "anvil-bench", about = "E2E benchmark runner for anvil agents")]
 struct Args {
@@ -37,6 +53,10 @@ struct Args {
     /// Turn off session post-processing (no prompt overlay apply). Compare pass rates vs default runs.
     #[arg(long, default_value_t = false)]
     disable_evolution: bool,
+
+    /// Task suite: `hard` adds `crate_dirs_manifest` (exact `crates/*` listing); run from repo root.
+    #[arg(long, value_enum, default_value_t = BenchTierArg::Default)]
+    tier: BenchTierArg,
 }
 
 #[tokio::main]
@@ -69,9 +89,15 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::load()?;
     let mut all_results = Vec::new();
+    let tier: tasks::BenchTier = args.tier.into();
 
     for iteration in 1..=args.iterations {
-        tracing::info!(iteration, total = args.iterations, "starting benchmark iteration");
+        tracing::info!(
+            iteration,
+            total = args.iterations,
+            ?tier,
+            "starting benchmark iteration"
+        );
 
         let memory = Arc::new(MemoryDb::in_memory().await?);
         if args.disable_evolution {
@@ -84,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
             config.clone(),
             iteration,
             args.max_turns,
+            tier,
         )
         .await?;
 
@@ -92,6 +119,9 @@ async fn main() -> anyhow::Result<()> {
 
     if args.disable_evolution {
         println!("Note: --disable-evolution: post-session learning disabled; expect Evo+ = 0.\n");
+    }
+    if tier == tasks::BenchTier::Hard {
+        println!("Note: tier=hard includes crate_dirs_manifest — run from workspace root so `crates/` resolves.\n");
     }
 
     let report = report::generate(&all_results, args.iterations);

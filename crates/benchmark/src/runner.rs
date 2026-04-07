@@ -9,7 +9,7 @@ use harness_core::session::Session;
 use harness_memory::{EvolutionScope, MemoryDb, ScopeKind};
 
 use crate::scoring::EloRating;
-use crate::tasks::{TaskEvalContext, ALL_TASKS};
+use crate::tasks::{BenchTier, TaskEvalContext, tasks_for_tier};
 
 /// Match `Agent::resolve_learning_scope` so overlay telemetry uses the same DB keys
 /// as evolution apply/activate (workdir when cwd resolves, else global).
@@ -50,6 +50,7 @@ pub async fn run_iteration(
     config: Config,
     iteration: usize,
     max_turns: usize,
+    tier: BenchTier,
 ) -> anyhow::Result<Vec<RunResult>> {
     let mut results = Vec::new();
     let mut elo = EloRating::new();
@@ -60,11 +61,27 @@ pub async fn run_iteration(
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&artifact_dir)?;
+
+    let rel_hard_root = std::path::Path::new("target").join("anvil-bench-hard").join(format!(
+        "iter{iteration}-{}",
+        uuid::Uuid::new_v4()
+    ));
+    if tier == BenchTier::Hard {
+        std::fs::create_dir_all(&rel_hard_root)?;
+    }
+    let hard_manifest = rel_hard_root.join("crate_dirs.txt");
+
     let eval_ctx = TaskEvalContext {
         multi_tool_output: Some(artifact_dir.join("bench_provider_files.txt")),
+        hard_crate_dirs_manifest: if tier == BenchTier::Hard {
+            Some(hard_manifest)
+        } else {
+            None
+        },
     };
 
-    for task in ALL_TASKS {
+    let tasks = tasks_for_tier(tier);
+    for task in tasks {
         let overlay_before = harness_memory::resolve_effective_overlay(memory.pool(), &scope)
             .await
             .ok()
