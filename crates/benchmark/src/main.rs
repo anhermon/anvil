@@ -33,6 +33,10 @@ struct Args {
     /// Max iterations per agent turn
     #[arg(long, default_value_t = 15)]
     max_turns: usize,
+
+    /// Turn off session post-processing (no prompt overlay apply). Compare pass rates vs default runs.
+    #[arg(long, default_value_t = false)]
+    disable_evolution: bool,
 }
 
 #[tokio::main]
@@ -70,6 +74,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(iteration, total = args.iterations, "starting benchmark iteration");
 
         let memory = Arc::new(MemoryDb::in_memory().await?);
+        if args.disable_evolution {
+            harness_memory::set_evolution_enabled(memory.pool(), false).await?;
+        }
 
         let iteration_results = runner::run_iteration(
             Arc::clone(&provider),
@@ -81,6 +88,10 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
         all_results.extend(iteration_results);
+    }
+
+    if args.disable_evolution {
+        println!("Note: --disable-evolution: post-session learning disabled; expect Evo+ = 0.\n");
     }
 
     let report = report::generate(&all_results, args.iterations);
