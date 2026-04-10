@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <!--
+    anvil-social.svg — Open Graph / Twitter Card (1200×630).
+    Centered icon + wordmark on dark background.
+  -->
+  <defs>
+    <radialGradient id="sc-bg" cx="50%" cy="45%" r="70%">
+      <stop offset="0%"   stop-color="#1c1c1c"/>
+      <stop offset="100%" stop-color="#0d0d0d"/>
+    </radialGradient>
+    <linearGradient id="sc-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#909090"/>
+      <stop offset="20%"  stop-color="#747474"/>
+      <stop offset="60%"  stop-color="#555555"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
+    </linearGradient>
+    <linearGradient id="sc-horn" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%"   stop-color="#747474"/>
+      <stop offset="100%" stop-color="#484848"/>
+    </linearGradient>
+    <linearGradient id="sc-face" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#6a6a6a"/>
+      <stop offset="35%"  stop-color="#a0a0a0"/>
+      <stop offset="65%"  stop-color="#a0a0a0"/>
+      <stop offset="100%" stop-color="#6a6a6a"/>
+    </linearGradient>
+    <linearGradient id="sc-ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#bb2200" stop-opacity="0"/>
+      <stop offset="8%"   stop-color="#ff4400"/>
+      <stop offset="30%"  stop-color="#ff7700"/>
+      <stop offset="50%"  stop-color="#ff9900"/>
+      <stop offset="70%"  stop-color="#ff7700"/>
+      <stop offset="92%"  stop-color="#ff4400"/>
+      <stop offset="100%" stop-color="#bb2200" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="sc-glow-edge" x="-20%" y="-600%" width="140%" height="1400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="sc-glow-halo" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="36"/>
+    </filter>
+  </defs>
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#sc-bg)"/>
+  <!-- Subtle vignette border -->
+  <rect width="1200" height="630" fill="none" stroke="#ff5500" stroke-width="4" opacity="0.15"/>
+
+  <!-- === ICON (centered left side, 320×320 at x=120, y=155) === -->
+  <!-- Scale factor: 320/200 = 1.6; offset x=120, y=155 -->
+  <!-- Halo -->
+  <ellipse cx="351" cy="261" rx="115" ry="35"
+           fill="#ff5500" opacity="0.32" filter="url(#sc-glow-halo)"/>
+  <!-- Body -->
+  <path d="
+    M 181,248 L 379,248 L 379,274
+    C 371,274 363,287 357,305
+    L 354,326 L 373,347 L 382,392
+    L 302,392 L 296,360 L 264,360
+    L 258,392 L 178,392 L 187,347
+    L 206,326 L 203,305
+    C 197,287 189,274 181,274 Z
+  " fill="url(#sc-steel)"/>
+  <!-- Inner arch -->
+  <path d="M 258,360 C 265,379 280,390 280,392 C 280,390 295,379 302,360 Z"
+        fill="#0d0d0d" opacity="0.75"/>
+  <!-- Horn -->
+  <path d="M 108,262 Q 144,248 181,248 L 181,274 Q 144,277 108,262 Z"
+        fill="url(#sc-horn)"/>
+  <!-- Work face -->
+  <rect x="203" y="232" width="176" height="16" rx="3" fill="url(#sc-face)"/>
+  <!-- Hardy hole -->
+  <rect x="360" y="234" width="19" height="13" rx="2" fill="#0d0d0d" opacity="0.9"/>
+  <!-- Ambient glow -->
+  <rect x="162" y="212" width="208" height="22" rx="10"
+        fill="#ff5500" opacity="0.38" filter="url(#sc-glow-halo)"/>
+  <!-- Ember line -->
+  <rect x="203" y="222" width="176" height="8" rx="4"
+        fill="url(#sc-ember)" filter="url(#sc-glow-edge)"/>
+
+  <!-- === WORDMARK "anvil" (right side, x=540) === -->
+  <g stroke="#d8d8d8" stroke-width="22"
+     stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- a -->
+    <path d="M 594,336 A 52,52 0 1,0 594,340"/>
+    <line x1="594" y1="284" x2="594" y2="388"/>
+    <!-- n -->
+    <line x1="660" y1="284" x2="660" y2="388"/>
+    <path d="M 660,314 C 660,280 700,280 700,280 C 740,280 740,314 740,314 L 740,388"/>
+    <!-- v -->
+    <polyline points="770,284 808,388 846,284"/>
+    <!-- i -->
+    <line x1="876" y1="314" x2="876" y2="388"/>
+    <circle cx="876" cy="262" r="14" fill="#d8d8d8" stroke="none"/>
+    <!-- l -->
+    <line x1="914" y1="230" x2="914" y2="388"/>
+  </g>
+
+  <!-- Tagline -->
+  <text x="600" y="450" font-family="system-ui, sans-serif" font-size="28"
+        fill="#888888" letter-spacing="6" text-anchor="start">AI AGENT PLATFORM</text>
+</svg>

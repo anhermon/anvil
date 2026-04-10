@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    anvil-favicon.svg — 32×32, readable at 16×16.
+    Simplified: no horn details, bold silhouette, clear ember line.
+  -->
+  <defs>
+    <radialGradient id="fv-bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%"   stop-color="#1e1e1e"/>
+      <stop offset="100%" stop-color="#111111"/>
+    </radialGradient>
+    <linearGradient id="fv-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#909090"/>
+      <stop offset="50%"  stop-color="#555555"/>
+      <stop offset="100%" stop-color="#333333"/>
+    </linearGradient>
+    <linearGradient id="fv-face" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#606060"/>
+      <stop offset="50%"  stop-color="#909090"/>
+      <stop offset="100%" stop-color="#606060"/>
+    </linearGradient>
+    <linearGradient id="fv-ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#ff4400" stop-opacity="0"/>
+      <stop offset="20%"  stop-color="#ff6600"/>
+      <stop offset="50%"  stop-color="#ff9900"/>
+      <stop offset="80%"  stop-color="#ff6600"/>
+      <stop offset="100%" stop-color="#ff4400" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="fv-glow" x="-30%" y="-500%" width="160%" height="1200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="url(#fv-bg)"/>
+  <!-- Body + simplified feet -->
+  <path d="
+    M 5,13 L 27,13 L 27,16
+    C 26,16 25,17 24,19
+    L 23,21 L 25,24 L 26,27
+    L 18,27 L 17,24 L 15,24
+    L 14,27 L 6,27 L 7,24
+    L 9,21 L 8,19
+    C 7,17 6,16 5,16 Z
+  " fill="url(#fv-steel)"/>
+  <!-- Horn -->
+  <path d="M 2,14 Q 4,13 5,13 L 5,16 Q 4,16 2,14 Z" fill="url(#fv-steel)"/>
+  <!-- Work face -->
+  <rect x="5" y="10" width="22" height="3" rx="0.8" fill="url(#fv-face)"/>
+  <!-- Ember line -->
+  <rect x="5" y="9" width="22" height="1.5" rx="0.75"
+        fill="url(#fv-ember)" filter="url(#fv-glow)"/>
+</svg>

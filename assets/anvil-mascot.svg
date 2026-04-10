@@ -3,20 +3,20 @@
     anvil-mascot.svg — "Anvi" the Anvil character
     Personified anvil: strong, clever, approachable.
     Works at 200×200 and scales up cleanly.
-    Palette: #2D3748 body, #4A5568 face/top, #718096 highlights
-             white eyes, #1A202C pupils, #E07070 blush cheeks
+    Palette: warm dark-metal — #252525 body, #444444 face/top, #909090 highlights
+             white eyes, #0d0d0d pupils, #E07070 blush cheeks
   -->
   <defs>
-    <!-- Body gradient: top-lit metallic slate -->
+    <!-- Body gradient: top-lit metallic dark -->
     <linearGradient id="mc-body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#4A5568"/>
-      <stop offset="40%"  stop-color="#3D4A5C"/>
-      <stop offset="100%" stop-color="#2D3748"/>
+      <stop offset="0%"   stop-color="#444444"/>
+      <stop offset="40%"  stop-color="#383838"/>
+      <stop offset="100%" stop-color="#252525"/>
     </linearGradient>
     <!-- Horn gradient: diagonal, slightly lighter top-left -->
     <linearGradient id="mc-horn" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%"   stop-color="#3D4A5C"/>
-      <stop offset="100%" stop-color="#2D3748"/>
+      <stop offset="0%"   stop-color="#383838"/>
+      <stop offset="100%" stop-color="#252525"/>
     </linearGradient>
   </defs>
 
@@ -27,7 +27,7 @@
   <!-- Right foot -->
   <rect x="112" y="141" width="52" height="28" rx="4" fill="url(#mc-body)"/>
 
-  <!-- Waist — C-curve transition from body to feet (no straight trapezoid) -->
+  <!-- Waist — C-curve transition from body to feet -->
   <path d="
     M 44,117 L 156,117
     C 151,117 146,124 142,141
@@ -39,9 +39,9 @@
   <rect x="44" y="47" width="112" height="70" fill="url(#mc-body)"/>
 
   <!-- Body left highlight — subtle metallic edge -->
-  <rect x="44" y="47" width="3" height="70" fill="#718096" opacity="0.2"/>
+  <rect x="44" y="47" width="3" height="70" fill="#909090" opacity="0.2"/>
 
-  <!-- Horn — Q-bezier tapered arm (not a flat triangle) -->
+  <!-- Horn — Q-bezier tapered arm -->
   <path d="
     M 44,47
     L 44,87
@@ -51,34 +51,34 @@
 
   <!-- Sparkle at horn tip — sharp and clever -->
   <path d="M16,61 L16,73 M10,67 L22,67"
-        stroke="#718096" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+        stroke="#909090" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
 
   <!-- Work face — flat top surface, lighter tone -->
-  <rect x="40" y="31" width="120" height="16" rx="3" fill="#4A5568"/>
+  <rect x="40" y="31" width="120" height="16" rx="3" fill="#444444"/>
 
   <!-- Highlight stripe on face (left two-thirds) -->
-  <rect x="40" y="31" width="80" height="4" rx="2" fill="#718096"/>
+  <rect x="40" y="31" width="80" height="4" rx="2" fill="#909090"/>
 
   <!-- Hardy hole — square socket near right of face -->
-  <rect x="142" y="33" width="14" height="12" rx="2" fill="#1A202C"/>
+  <rect x="142" y="33" width="14" height="12" rx="2" fill="#0d0d0d"/>
 
   <!-- === ARMS — thick rounded strokes giving a stocky strong look === -->
   <path d="M44,72 Q18,90 12,118"
-        stroke="#2D3748" stroke-width="14" stroke-linecap="round" fill="none"/>
+        stroke="#1a1a1a" stroke-width="14" stroke-linecap="round" fill="none"/>
   <path d="M156,72 Q182,90 188,118"
-        stroke="#2D3748" stroke-width="14" stroke-linecap="round" fill="none"/>
+        stroke="#1a1a1a" stroke-width="14" stroke-linecap="round" fill="none"/>
 
   <!-- === CHARACTER FACE (on body front surface) === -->
 
   <!-- Left eye -->
   <ellipse cx="84" cy="79" rx="10" ry="11" fill="white"/>
-  <circle cx="87" cy="82" r="6" fill="#1A202C"/>
+  <circle cx="87" cy="82" r="6" fill="#0d0d0d"/>
   <!-- Left eye shine -->
   <circle cx="83" cy="75" r="2.5" fill="white"/>
 
   <!-- Right eye -->
   <ellipse cx="116" cy="79" rx="10" ry="11" fill="white"/>
-  <circle cx="119" cy="82" r="6" fill="#1A202C"/>
+  <circle cx="119" cy="82" r="6" fill="#0d0d0d"/>
   <!-- Right eye shine -->
   <circle cx="115" cy="75" r="2.5" fill="white"/>
 
@@ -88,9 +88,9 @@
 
   <!-- Eyebrows — confident raised arch -->
   <path d="M76,68 Q84,60 92,68"
-        stroke="#718096" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        stroke="#909090" stroke-width="3.5" stroke-linecap="round" fill="none"/>
   <path d="M108,68 Q116,60 124,68"
-        stroke="#718096" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        stroke="#909090" stroke-width="3.5" stroke-linecap="round" fill="none"/>
 
   <!-- Smile — wide friendly curve -->
   <path d="M83,100 Q100,115 117,100"
