@@ -32,6 +32,9 @@ pub enum ContentBlock {
     Text {
         text: String,
     },
+    Thought {
+        thought: String,
+    },
     ToolUse {
         id: String,
         name: String,

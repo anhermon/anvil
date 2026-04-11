@@ -17,6 +17,13 @@ struct EvalCase {
     /// Optional human-readable label for this case.
     #[serde(default)]
     label: Option<String>,
+    /// Match type: "contains" (default), "exact", "starts_with", "ends_with"
+    #[serde(default = "default_match_type")]
+    match_type: String,
+}
+
+fn default_match_type() -> String {
+    "contains".to_string()
 }
 
 #[derive(Args)]
@@ -107,9 +114,15 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
             .unwrap_or("")
             .to_string();
 
-        let pass = response
-            .to_lowercase()
-            .contains(&case.expected.to_lowercase());
+        let response_lower = response.to_lowercase();
+        let expected_lower = case.expected.to_lowercase();
+
+        let pass = match case.match_type.as_str() {
+            "exact" => response_lower.trim() == expected_lower.trim(),
+            "starts_with" => response_lower.starts_with(&expected_lower),
+            "ends_with" => response_lower.ends_with(&expected_lower),
+            _ => response_lower.contains(&expected_lower),
+        };
 
         if pass {
             passed += 1;
@@ -117,7 +130,13 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
         } else {
             failed += 1;
             println!("[FAIL] {}", label);
-            println!("       expected to contain: {:?}", case.expected);
+            let requirement = match case.match_type.as_str() {
+                "exact" => "exact match",
+                "starts_with" => "to start with",
+                "ends_with" => "to end with",
+                _ => "to contain",
+            };
+            println!("       expected {}: {:?}", requirement, case.expected);
             println!(
                 "       got:                 {:?}",
                 &response[..response.len().min(120)]
@@ -159,5 +178,12 @@ mod tests {
         let line = r#"{"goal":"hello","expected":"world","label":"greeting"}"#;
         let case: EvalCase = serde_json::from_str(line).unwrap();
         assert_eq!(case.label.as_deref(), Some("greeting"));
+    }
+
+    #[test]
+    fn parses_eval_case_with_match_type() {
+        let line = r#"{"goal":"hello","expected":"world","match_type":"exact"}"#;
+        let case: EvalCase = serde_json::from_str(line).unwrap();
+        assert_eq!(case.match_type, "exact");
     }
 }

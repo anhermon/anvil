@@ -105,16 +105,19 @@ impl ToolHandler for ReadFileTool {
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
-    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "mkdir", "rm",
+    "cp", "mv", "touch", "sed", "awk", "curl", "jq", "npm", "node", "python", "pip", "uv",
+    "docker", "find", "grep",
 ];
 
 #[async_trait]
 impl ToolHandler for BashExecTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
-            name: "bash_exec".into(),
+            name: "bash".into(),
             description: "Execute a shell command and return stdout+stderr. \
-                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which, \
+                mkdir, rm, cp, mv, touch, sed, awk, curl, jq, npm, node, python, pip, uv, docker, find, grep. \
                 Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
@@ -279,6 +282,31 @@ mod tests {
             "expected cargo --version to succeed: {}",
             out.content
         );
+    }
+
+    #[tokio::test]
+    async fn bash_exec_mkdir_touch_rm_allowed() {
+        let tool = BashExecTool;
+        let test_dir = "test_bash_exec_dir";
+        let test_file = format!("{}/test_file.txt", test_dir);
+
+        // mkdir
+        let out = tool
+            .call(json!({"command": format!("mkdir -p {}", test_dir)}))
+            .await;
+        assert!(!out.is_error, "mkdir failed: {}", out.content);
+
+        // touch
+        let out = tool
+            .call(json!({"command": format!("touch {}", test_file)}))
+            .await;
+        assert!(!out.is_error, "touch failed: {}", out.content);
+
+        // rm
+        let out = tool
+            .call(json!({"command": format!("rm -rf {}", test_dir)}))
+            .await;
+        assert!(!out.is_error, "rm failed: {}", out.content);
     }
 
     #[tokio::test]

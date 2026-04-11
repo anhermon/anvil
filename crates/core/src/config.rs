@@ -9,6 +9,14 @@ pub struct Config {
     pub agent: AgentConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolFormat {
+    #[default]
+    Native,
+    Xml,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     /// Active provider: "claude", "openai", "ollama", "echo"
@@ -21,6 +29,9 @@ pub struct ProviderConfig {
     pub api_key: Option<String>,
     /// Base URL override (useful for Ollama or proxies)
     pub base_url: Option<String>,
+    /// Tool calling format: "native" or "xml"
+    #[serde(default)]
+    pub tool_format: ToolFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +64,7 @@ impl Default for Config {
                 max_tokens: 8192,
                 api_key: None,
                 base_url: None,
+                tool_format: ToolFormat::Native,
             },
             memory: MemoryConfig {
                 db_path,

@@ -76,15 +76,27 @@ impl Provider for EchoProvider {
 
     async fn complete(&self, messages: &[Message]) -> Result<TurnResponse> {
         use crate::message::{MessageContent, Role, StopReason, Usage};
-        let last = messages
-            .last()
-            .and_then(|m| m.text())
-            .unwrap_or("(empty)")
-            .to_string();
+        let summary = if messages.is_empty() {
+            "(empty)".to_string()
+        } else {
+            messages
+                .iter()
+                .map(|m| {
+                    let role = match m.role {
+                        Role::System => "system",
+                        Role::User => "user",
+                        Role::Assistant => "assistant",
+                        Role::Tool => "tool",
+                    };
+                    format!("{}: {}", role, m.text().unwrap_or("(non-text)"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         Ok(TurnResponse {
             message: Message {
                 role: Role::Assistant,
-                content: MessageContent::Text(format!("echo: {last}")),
+                content: MessageContent::Text(summary),
             },
             stop_reason: StopReason::EndTurn,
             usage: Usage::default(),
@@ -103,7 +115,23 @@ mod tests {
         let p = EchoProvider;
         let msgs = vec![Message::user("hello")];
         let resp = p.complete(&msgs).await.unwrap();
-        assert_eq!(resp.message.text(), Some("echo: hello"));
+        assert_eq!(resp.message.text(), Some("user: hello"));
         assert_eq!(resp.model, "echo");
+    }
+
+    #[tokio::test]
+    async fn echo_provider_summarizes_history() {
+        let p = EchoProvider;
+        let msgs = vec![
+            Message::system("be helpful"),
+            Message::user("hello"),
+            Message::assistant("hi"),
+            Message::user("world"),
+        ];
+        let resp = p.complete(&msgs).await.unwrap();
+        assert_eq!(
+            resp.message.text(),
+            Some("system: be helpful\nuser: hello\nassistant: hi\nuser: world")
+        );
     }
 }

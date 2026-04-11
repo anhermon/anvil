@@ -23,6 +23,11 @@ enum MemoryCommands {
         #[arg(short, long, default_value = "20")]
         limit: i64,
     },
+    /// Show recent agent self-evolution records
+    Evolution {
+        #[arg(short, long, default_value = "20")]
+        limit: i64,
+    },
 }
 
 pub async fn execute(args: MemoryArgs) -> anyhow::Result<()> {
@@ -52,6 +57,21 @@ pub async fn execute(args: MemoryArgs) -> anyhow::Result<()> {
                     ep.created_at.format("%Y-%m-%d %H:%M"),
                     ep.role,
                     &ep.content[..ep.content.len().min(120)]
+                );
+            }
+        }
+        MemoryCommands::Evolution { limit } => {
+            let records = harness_memory::query_evolution_log(memory.pool(), limit).await?;
+            if records.is_empty() {
+                println!("No evolution records found.");
+            }
+            for rec in records {
+                println!(
+                    "[{}] Score: {:.2} | Kind: {} | Details: {}",
+                    rec.created_at.format("%Y-%m-%d %H:%M"),
+                    rec.prompt_score,
+                    rec.outcome_kind,
+                    rec.outcome_detail
                 );
             }
         }

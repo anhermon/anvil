@@ -4,4 +4,4 @@ pub mod evolution;
 
 pub use db::MemoryDb;
 pub use episode::{Episode, EpisodeKind};
-pub use evolution::{insert_evolution_entry, EvolutionEntry};
+pub use evolution::{insert_evolution_entry, query_evolution_log, EvolutionEntry, EvolutionRecord};

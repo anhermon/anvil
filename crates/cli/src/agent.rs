@@ -33,6 +33,10 @@ pub trait UiHook: Send + Sync {
     fn on_thinking(&self, iteration: usize, max_iter: usize);
     /// Called when the provider has returned (end of thinking).
     fn on_thinking_done(&self);
+    /// Called when an assistant thought is received.
+    fn on_thought(&self, thought: &str);
+    /// Called when an assistant message is received (text).
+    fn on_assistant_message(&self, message: &Message);
 }
 
 /// Silent implementation used for sub-agents and unit tests.
@@ -42,6 +46,8 @@ impl UiHook for NoopHook {
     fn on_tool_result(&self, _output: &str) {}
     fn on_thinking(&self, _iteration: usize, _max_iter: usize) {}
     fn on_thinking_done(&self) {}
+    fn on_thought(&self, _thought: &str) {}
+    fn on_assistant_message(&self, _message: &Message) {}
 }
 
 /// Options controlling a single agent run.
@@ -147,8 +153,38 @@ impl Agent {
             .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.")
             .to_string();
 
+        let mut tool_instruction = String::new();
+
+        match self.config.provider.tool_format {
+            harness_core::config::ToolFormat::Xml => {
+                tool_instruction.push_str("\n\n# OPERATING INSTRUCTIONS\n");
+                tool_instruction.push_str("1. **Think First**: Output a `<thought>` block explaining your reasoning before any action.\n");
+                tool_instruction.push_str("2. **No Tools for Greetings**: If the user says 'ping', 'hello', etc., respond with normal text. DO NOT use tools for simple inquiries.\n");
+                tool_instruction.push_str("3. **Tool Format**: Use ONLY this XML format for tools. NAKED JSON OR OTHER TAGS ARE FORBIDDEN. Output the block exactly as shown:\n");
+                tool_instruction.push_str("<tool_call>\n{\"name\": \"bash\", \"arguments\": {\"command\": \"ls\"}}\n</tool_call>\n\n");
+
+                tool_instruction.push_str("# AVAILABLE TOOLS\n");
+                for schema in self.tools.schemas() {
+                    tool_instruction.push_str(&format!(
+                        "- {}: {}\n  Schema: {}\n",
+                        schema.name,
+                        schema.description,
+                        serde_json::to_string(&schema.input_schema).unwrap_or_default()
+                    ));
+                }
+            }
+            harness_core::config::ToolFormat::Native => {
+                // Native format relies on the provider's tool definitions.
+                // We still want to encourage reasoning if the model supports it.
+                tool_instruction.push_str("\n\n# OPERATING INSTRUCTIONS\n");
+                tool_instruction.push_str("1. **Contextual Tools**: Use tools ONLY when necessary. Respond with normal text for simple inquiries.\n");
+            }
+        }
+
+        let system_with_tools = format!("{}{}", base_system, tool_instruction);
+
         let system_with_memory = self
-            .build_system_prompt_with_memory(&base_system, goal)
+            .build_system_prompt_with_memory(&system_with_tools, goal)
             .await;
 
         let mut messages: Vec<Message> = Vec::new();
@@ -206,6 +242,31 @@ impl Agent {
                 .complete_with_tools(&messages, &tool_defs)
                 .await?;
             self.hook.on_thinking_done();
+
+            // Dispatch thoughts and text separately.
+            match &response.message.content {
+                MessageContent::Text(_t) => self.hook.on_assistant_message(&response.message),
+                MessageContent::Blocks(blocks) => {
+                    let has_tool_use = blocks
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+                    for block in blocks {
+                        match block {
+                            ContentBlock::Thought { thought } => self.hook.on_thought(thought),
+                            ContentBlock::Text { text } => {
+                                if has_tool_use {
+                                    // Text alongside a tool call is usually reasoning.
+                                    self.hook.on_thought(text);
+                                } else {
+                                    self.hook.on_assistant_message(&response.message);
+                                    break; // Only call once for the whole message
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
 
             let preview = response.message.text().unwrap_or("").to_string();
             info!(
@@ -306,9 +367,9 @@ impl Agent {
                         });
                     }
 
-                    // Feed results back as a user-role message and continue.
+                    // Feed results back as a tool-role message and continue.
                     let tool_result_msg = Message {
-                        role: Role::User,
+                        role: Role::Tool,
                         content: MessageContent::Blocks(result_blocks),
                     };
                     messages.push(tool_result_msg.clone());

@@ -21,6 +21,8 @@ struct Cli {
 enum Commands {
     /// Run an agent turn toward a goal
     Run(commands::run::RunArgs),
+    /// Interactive chat with the agent
+    Chat(commands::chat::ChatArgs),
     /// Show current configuration
     Config(commands::config::ConfigArgs),
     /// Manage and inspect memory
@@ -29,6 +31,8 @@ enum Commands {
     Eval(commands::eval::EvalArgs),
     /// Manage authentication credentials
     Auth(commands::auth::AuthArgs),
+    /// Start the webhook receiver server
+    Webhook(commands::webhook::WebhookArgs),
 }
 
 #[tokio::main]
@@ -44,9 +48,11 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Run(args) => commands::run::execute(args).await,
+        Commands::Chat(args) => commands::chat::execute(args).await,
         Commands::Config(args) => commands::config::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
         Commands::Eval(args) => commands::eval::execute(args).await,
         Commands::Auth(args) => commands::auth::execute(args).await,
+        Commands::Webhook(args) => commands::webhook::execute(args).await,
     }
 }

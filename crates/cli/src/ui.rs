@@ -127,6 +127,13 @@ pub fn print_tool_result(output: &str) {
 // Response
 // ─────────────────────────────────────────────────────────────────────────────────
 
+/// Print an assistant thought (reasoning) with consistent padding and styling.
+pub fn print_thought(text: &str) {
+    for line in text.lines() {
+        eprintln!("  {}", style(line).cyan().dim());
+    }
+}
+
 /// Print the final assistant response with consistent left padding.
 pub fn print_response(text: &str) {
     eprintln!();

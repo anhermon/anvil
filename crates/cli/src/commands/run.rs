@@ -7,7 +7,7 @@ use futures::StreamExt;
 use harness_core::{
     config::Config,
     provider::Provider,
-    providers::{ClaudeCodeProvider, ClaudeProvider},
+    providers::{ClaudeCodeProvider, ClaudeProvider, OpenAIProvider},
 };
 use harness_memory::MemoryDb;
 use indicatif::ProgressBar;
@@ -21,9 +21,17 @@ pub struct RunArgs {
     #[arg(short, long)]
     pub goal: String,
 
-    /// Provider backend override (claude, claude-code, cc, echo)
+    /// Provider backend override (claude, openai, custom, claude-code, cc, echo)
     #[arg(long, env = "HARNESS_PROVIDER")]
     pub provider: Option<String>,
+
+    /// Model identifier override (e.g. "gpt-4o")
+    #[arg(long)]
+    pub model: Option<String>,
+
+    /// Base URL override (useful for Ollama, vLLM, LM Studio)
+    #[arg(long)]
+    pub base_url: Option<String>,
 
     /// Stream response tokens to stdout as they arrive
     #[arg(long)]
@@ -73,6 +81,19 @@ impl UiHook for CliHook {
         }
     }
 
+    fn on_thought(&self, thought: &str) {
+        {
+            let guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(pb) = guard.as_ref() {
+                pb.suspend(|| {
+                    ui::print_thought(thought);
+                });
+                return;
+            }
+        }
+        ui::print_thought(thought);
+    }
+
     fn on_tool_call(&self, name: &str, input_preview: &str) {
         // Pause spinner output so tool lines print cleanly.
         {
@@ -99,6 +120,14 @@ impl UiHook for CliHook {
         }
         ui::print_tool_result(output);
     }
+
+    fn on_assistant_message(&self, message: &harness_core::message::Message) {
+        if let Some(text) = message.text() {
+            if !text.trim().is_empty() {
+                ui::print_response(text);
+            }
+        }
+    }
 }
 
 pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
@@ -109,18 +138,35 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         .as_deref()
         .unwrap_or(&config.provider.backend)
         .to_string();
+    let model = args
+        .model
+        .as_deref()
+        .unwrap_or(&config.provider.model)
+        .to_string();
+    let base_url = args.base_url.clone().or(config.provider.base_url.clone());
+
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
         }
         "claude-code" | "cc" => {
-            let model = &config.provider.model;
             tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
-            Arc::new(ClaudeCodeProvider::new(model))
+            Arc::new(ClaudeCodeProvider::new(&model))
+        }
+        "openai" | "custom" | "ollama" => {
+            let api_key = config.resolved_api_key().unwrap_or_default();
+            tracing::info!(model = %model, base_url = ?base_url, "using OpenAIProvider");
+            Arc::new(OpenAIProvider::new(
+                api_key,
+                &model,
+                config.provider.max_tokens,
+                base_url,
+                config.provider.tool_format.clone(),
+            ))
         }
         _ => Arc::new(
-            ClaudeProvider::from_env(&config.provider.model, config.provider.max_tokens)
+            ClaudeProvider::from_env(&model, config.provider.max_tokens)
                 .map_err(|e| anyhow::anyhow!("{}", e))?,
         ),
     };
@@ -140,7 +186,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             ];
 
         ui::print_banner();
-        ui::print_session_header("stream", &config.provider.model, &backend);
+        ui::print_session_header("stream", &model, &backend);
 
         println!("\n{}", "-".repeat(60));
         let mut token_stream = provider.stream(&msgs).await?;
@@ -175,7 +221,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             .with_hook(Arc::clone(&hook) as Arc<dyn UiHook>);
 
         ui::print_banner();
-        ui::print_session_header("pending", &config.provider.model, &backend);
+        ui::print_session_header("pending", &model, &backend);
 
         // Inform user about active session name.
         if let Some(ref sname) = args.session {
@@ -194,10 +240,6 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         let t0 = Instant::now();
         let session = agent.run_with_options(&args.goal, opts).await?;
         let elapsed_ms = t0.elapsed().as_millis() as u64;
-
-        if let Some(msg) = session.messages.last() {
-            ui::print_response(msg.text().unwrap_or("(no response)"));
-        }
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
         eprintln!(
