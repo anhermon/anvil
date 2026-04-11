@@ -121,7 +121,7 @@ anvil paperclip --agent-id <your-agent-id> --company-id <company-id>
 # Search episodic memory
 anvil memory search "recent goals"
 
-# Check your config
+# Check config + native build prerequisites (cc, pkg-config, openssl)
 anvil config --check
 ```
 
