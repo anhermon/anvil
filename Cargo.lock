@@ -865,6 +865,7 @@ dependencies = [
  "harness-core",
  "harness-evolution",
  "harness-memory",
+ "harness-paperclip",
  "harness-tools",
  "indicatif",
  "serde",

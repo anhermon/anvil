@@ -118,6 +118,11 @@ export PAPERCLIP_API_KEY=...
 export PAPERCLIP_API_URL=http://localhost:3100
 anvil paperclip --agent-id <your-agent-id> --company-id <company-id>
 
+# Dogfood artifact freshness check (use before sharing target/debug binaries)
+cargo build -p harness-cli
+./target/debug/anvil --help | grep paperclip
+./target/debug/anvil paperclip --help
+
 # Search episodic memory
 anvil memory search "recent goals"
 
