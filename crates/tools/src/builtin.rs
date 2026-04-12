@@ -34,7 +34,7 @@ impl ToolHandler for SpawnSubagentTool {
         ToolSchema {
             name: "spawn_subagent".to_string(),
             description: "Spawn a sub-agent to handle a delegated sub-task. \
-                 The sub-agent shares the same provider and tool set as the main agent. \
+                 The sub-agent can optionally use a named profile with isolated prompt/model/tools. \
                  Returns the sub-agent's final response text. \
                  Maximum nesting depth is 4 (MAX_SUBAGENT_DEPTH); calls beyond that depth \
                  are rejected with an error."
@@ -49,6 +49,10 @@ impl ToolHandler for SpawnSubagentTool {
                     "context": {
                         "type": "string",
                         "description": "Optional background context for the sub-agent."
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Optional named sub-agent profile to apply."
                     }
                 },
                 "required": ["goal"]

@@ -70,6 +70,11 @@ impl ToolRegistry {
         self.handlers.iter().map(|e| e.value().schema()).collect()
     }
 
+    /// Check whether a tool is registered.
+    pub fn contains(&self, name: &str) -> bool {
+        self.handlers.contains_key(name)
+    }
+
     pub fn len(&self) -> usize {
         self.handlers.len()
     }

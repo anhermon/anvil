@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 /// Top-level harness configuration (loaded from ~/.paperclip/harness/config.toml).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +39,45 @@ pub struct AgentConfig {
     pub system_prompt: Option<String>,
     /// Max iterations per run (0 = unlimited)
     pub max_iterations: usize,
+    /// Named sub-agent profiles that can override prompt/model/tool access.
+    #[serde(default)]
+    pub subagent_profiles: BTreeMap<String, SubagentProfileConfig>,
+    /// Optional project-scoped metadata for profile definitions.
+    #[serde(default)]
+    pub project_metadata: ProjectMetadataConfig,
+}
+
+/// Per-profile configuration for spawned sub-agents.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubagentProfileConfig {
+    /// Optional system prompt override for this profile.
+    pub system_prompt: Option<String>,
+    /// Optional model override for this profile.
+    pub model: Option<String>,
+    /// If set, only these tool names are available to this sub-agent profile.
+    #[serde(default)]
+    pub tool_allowlist: Vec<String>,
+    /// Tool names that are explicitly denied for this profile.
+    #[serde(default)]
+    pub tool_denylist: Vec<String>,
+}
+
+/// Project-scoped metadata section in config.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProjectMetadataConfig {
+    /// Sub-agent profiles defined at project metadata scope.
+    #[serde(default)]
+    pub subagent_profiles: BTreeMap<String, SubagentProfileConfig>,
+}
+
+impl AgentConfig {
+    /// Resolve a sub-agent profile by name from either config-level profiles
+    /// or project metadata profiles.
+    pub fn subagent_profile(&self, name: &str) -> Option<&SubagentProfileConfig> {
+        self.subagent_profiles
+            .get(name)
+            .or_else(|| self.project_metadata.subagent_profiles.get(name))
+    }
 }
 
 impl Default for Config {
@@ -62,6 +101,8 @@ impl Default for Config {
                 name: "anvil".to_string(),
                 system_prompt: None,
                 max_iterations: 50,
+                subagent_profiles: BTreeMap::new(),
+                project_metadata: ProjectMetadataConfig::default(),
             },
         }
     }
