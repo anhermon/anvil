@@ -1,10 +1,13 @@
 /// Built-in tools registered by default.
 ///
 /// Currently a stub - real implementations added as needed.
-use crate::registry::{ToolHandler, ToolOutput};
+use crate::registry::{ToolCallContext, ToolHandler, ToolOutput};
 use crate::schema::ToolSchema;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 /// Echo tool - useful for testing the tool pipeline.
 pub struct EchoTool;
@@ -73,6 +76,81 @@ impl ToolHandler for SpawnSubagentTool {
 /// Only relative paths that stay within the working directory are permitted.
 pub struct ReadFileTool;
 
+#[derive(Default)]
+struct SafeEditState {
+    snapshots_by_session: HashMap<String, HashMap<String, String>>,
+}
+
+static SAFE_EDIT_STATE: OnceLock<Mutex<SafeEditState>> = OnceLock::new();
+
+fn safe_edit_state() -> &'static Mutex<SafeEditState> {
+    SAFE_EDIT_STATE.get_or_init(|| Mutex::new(SafeEditState::default()))
+}
+
+fn safe_edit_session_key(context: &ToolCallContext) -> String {
+    context
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "__default__".to_string())
+}
+
+fn normalize_path_for_safe_edit(path: &Path) -> String {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        if component != Component::CurDir {
+            normalized.push(component.as_os_str());
+        }
+    }
+    normalized.to_string_lossy().to_string()
+}
+
+fn safe_edit_path_key(raw: &str) -> String {
+    let joined = match std::env::current_dir() {
+        Ok(cwd) => cwd.join(raw),
+        Err(_) => PathBuf::from(raw),
+    };
+    normalize_path_for_safe_edit(&joined)
+}
+
+fn record_read_snapshot(context: &ToolCallContext, path_key: &str, contents: &str) {
+    if let Ok(mut state) = safe_edit_state().lock() {
+        let session_key = safe_edit_session_key(context);
+        state
+            .snapshots_by_session
+            .entry(session_key)
+            .or_default()
+            .insert(path_key.to_string(), contents.to_string());
+    }
+}
+
+fn get_read_snapshot(context: &ToolCallContext, path_key: &str) -> Option<String> {
+    safe_edit_state().lock().ok().and_then(|state| {
+        state
+            .snapshots_by_session
+            .get(&safe_edit_session_key(context))
+            .and_then(|paths| paths.get(path_key))
+            .cloned()
+    })
+}
+
+fn invalidate_read_snapshot(context: &ToolCallContext, path_key: &str) {
+    if let Ok(mut state) = safe_edit_state().lock() {
+        if let Some(paths) = state
+            .snapshots_by_session
+            .get_mut(&safe_edit_session_key(context))
+        {
+            paths.remove(path_key);
+        }
+    }
+}
+
+#[cfg(test)]
+fn reset_safe_edit_state_for_tests() {
+    if let Ok(mut state) = safe_edit_state().lock() {
+        state.snapshots_by_session.clear();
+    }
+}
+
 #[async_trait]
 impl ToolHandler for ReadFileTool {
     fn schema(&self) -> ToolSchema {
@@ -80,21 +158,30 @@ impl ToolHandler for ReadFileTool {
     }
 
     async fn call(&self, input: Value) -> ToolOutput {
+        let context = ToolCallContext::default();
+        self.call_with_context(input, &context).await
+    }
+
+    async fn call_with_context(&self, input: Value, context: &ToolCallContext) -> ToolOutput {
         let path = match input["path"].as_str() {
             Some(p) if !p.is_empty() => p.to_string(),
             _ => return ToolOutput::err("missing required field: path"),
         };
 
-        let p = std::path::Path::new(&path);
+        let p = Path::new(&path);
         if p.is_absolute() || path.starts_with('/') {
             return ToolOutput::err("absolute paths are not allowed");
         }
-        if p.components().any(|c| c == std::path::Component::ParentDir) {
+        if p.components().any(|c| c == Component::ParentDir) {
             return ToolOutput::err("path traversal (..) is not allowed");
         }
 
         match std::fs::read_to_string(&path) {
-            Ok(contents) => ToolOutput::ok(contents),
+            Ok(contents) => {
+                let path_key = safe_edit_path_key(&path);
+                record_read_snapshot(context, &path_key, &contents);
+                ToolOutput::ok(contents)
+            }
             Err(e) => ToolOutput::err(format!("read_file failed for {path}: {e}")),
         }
     }
@@ -107,6 +194,35 @@ pub struct BashExecTool;
 const ALLOWED_COMMANDS: &[&str] = &[
     "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
 ];
+
+fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
+    let markers = [
+        "operation not permitted",
+        "permission denied",
+        "sandbox",
+        "landlock",
+        "seccomp",
+        "denied by policy",
+        "blocked by policy",
+    ];
+    let stderr_lower = stderr.to_ascii_lowercase();
+    if !markers.iter().any(|marker| stderr_lower.contains(marker)) {
+        return None;
+    }
+    let violation_line = stderr
+        .lines()
+        .find(|line| {
+            let lowered = line.to_ascii_lowercase();
+            markers.iter().any(|marker| lowered.contains(marker))
+        })
+        .unwrap_or("sandbox denied command execution")
+        .trim();
+    Some(format!(
+        "sandbox_violation: command `{command}` appears blocked by sandbox policy.\n\
+violation_detail: {violation_line}\n\
+action: retry with workspace-local paths or allowed commands, or request a broader sandbox policy."
+    ))
+}
 
 #[async_trait]
 impl ToolHandler for BashExecTool {
@@ -135,6 +251,7 @@ impl ToolHandler for BashExecTool {
             Some(c) if !c.is_empty() => c.to_string(),
             _ => return ToolOutput::err("command is required"),
         };
+        let command_for_error = command.clone();
 
         // Allowlist check: only permit commands whose first token is in ALLOWED_COMMANDS
         let first_token = command.split_whitespace().next().unwrap_or("");
@@ -163,7 +280,7 @@ impl ToolHandler for BashExecTool {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 let exit_code = out.status.code().unwrap_or(-1);
-                let result = if stderr.is_empty() {
+                let mut result = if stderr.is_empty() {
                     format!("exit_code: {exit_code}\n{stdout}")
                 } else {
                     format!("exit_code: {exit_code}\nstdout:\n{stdout}\nstderr:\n{stderr}")
@@ -171,6 +288,10 @@ impl ToolHandler for BashExecTool {
                 if out.status.success() {
                     ToolOutput::ok(result)
                 } else {
+                    if let Some(hint) = sandbox_violation_hint(&command_for_error, &stderr) {
+                        result.push_str("\n\n");
+                        result.push_str(&hint);
+                    }
                     ToolOutput::err(result)
                 }
             }
@@ -211,18 +332,52 @@ impl ToolHandler for WriteFileTool {
     }
 
     async fn call(&self, input: Value) -> ToolOutput {
+        let context = ToolCallContext::default();
+        self.call_with_context(input, &context).await
+    }
+
+    async fn call_with_context(&self, input: Value, context: &ToolCallContext) -> ToolOutput {
         let raw = match input["path"].as_str() {
             Some(p) if !p.is_empty() => p.to_string(),
             _ => return ToolOutput::err("path is required"),
         };
         let content = input["content"].as_str().unwrap_or("").to_string();
 
-        let p = std::path::Path::new(&raw);
+        let p = Path::new(&raw);
         if p.is_absolute() || raw.starts_with('/') {
             return ToolOutput::err("absolute paths are not allowed");
         }
-        if p.components().any(|c| c == std::path::Component::ParentDir) {
+        if p.components().any(|c| c == Component::ParentDir) {
             return ToolOutput::err("path traversal (..) is not allowed");
+        }
+        let path_key = safe_edit_path_key(&raw);
+        let file_exists = p.exists();
+        let snapshot = get_read_snapshot(context, &path_key);
+
+        if file_exists {
+            let Some(snapshot_contents) = snapshot else {
+                return ToolOutput::err(format!(
+                    "SafeEdit violation: write_file requires a prior read_file for {raw} in this session."
+                ));
+            };
+            match std::fs::read_to_string(&raw) {
+                Ok(current_contents) => {
+                    if current_contents != snapshot_contents {
+                        return ToolOutput::err(format!(
+                            "SafeEdit violation: {raw} changed since the last read_file snapshot. Run read_file again before write_file."
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return ToolOutput::err(format!(
+                        "SafeEdit violation: could not validate current contents for {raw}: {e}"
+                    ));
+                }
+            }
+        } else if snapshot.is_some() {
+            return ToolOutput::err(format!(
+                "SafeEdit violation: {raw} changed since the last read_file snapshot (file no longer exists). Run read_file again before write_file."
+            ));
         }
 
         // Create parent directories if needed
@@ -235,7 +390,11 @@ impl ToolHandler for WriteFileTool {
         }
 
         match std::fs::write(&raw, &content) {
-            Ok(()) => ToolOutput::ok(format!("wrote {} bytes to {raw}", content.len())),
+            Ok(()) => {
+                // Force a fresh read before subsequent overwrites.
+                invalidate_read_snapshot(context, &path_key);
+                ToolOutput::ok(format!("wrote {} bytes to {raw}", content.len()))
+            }
             Err(e) => ToolOutput::err(format!("write_file failed for {raw}: {e}")),
         }
     }
@@ -245,6 +404,46 @@ impl ToolHandler for WriteFileTool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::sync::{Mutex, MutexGuard};
+
+    static TEST_FS_COUNTER: AtomicU64 = AtomicU64::new(0);
+    static TEST_FS_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+
+    fn test_fs_lock() -> &'static Mutex<()> {
+        TEST_FS_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct TestFsScope {
+        _guard: MutexGuard<'static, ()>,
+        old_cwd: PathBuf,
+        test_dir: PathBuf,
+    }
+
+    impl Drop for TestFsScope {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.old_cwd);
+            let _ = std::fs::remove_dir_all(&self.test_dir);
+            reset_safe_edit_state_for_tests();
+        }
+    }
+
+    async fn enter_test_fs_scope() -> TestFsScope {
+        let guard = test_fs_lock().lock().await;
+        reset_safe_edit_state_for_tests();
+        let old_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let id = TEST_FS_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let test_dir =
+            std::env::temp_dir().join(format!("anvil_tools_test_{}_{}", std::process::id(), id));
+        std::fs::create_dir_all(&test_dir).expect("create isolated test dir");
+        std::env::set_current_dir(&test_dir).expect("switch to isolated test dir");
+        TestFsScope {
+            _guard: guard,
+            old_cwd,
+            test_dir,
+        }
+    }
 
     #[tokio::test]
     async fn bash_exec_echo() {
@@ -300,13 +499,85 @@ mod tests {
 
     #[tokio::test]
     async fn write_file_creates_file() {
+        let _scope = enter_test_fs_scope().await;
         let tool = WriteFileTool;
         let out = tool
             .call(json!({"path": "test_write_output.txt", "content": "hello world"}))
             .await;
-        let _ = std::fs::remove_file("test_write_output.txt");
         assert!(!out.is_error, "write failed: {}", out.content);
         assert!(out.content.contains("11 bytes"), "got: {}", out.content);
+        let saved = std::fs::read_to_string("test_write_output.txt").expect("read test output");
+        assert_eq!(saved, "hello world");
+    }
+
+    #[tokio::test]
+    async fn write_file_requires_read_before_overwrite() {
+        let _scope = enter_test_fs_scope().await;
+        std::fs::write("existing.txt", "before").expect("seed existing file");
+
+        let tool = WriteFileTool;
+        let out = tool
+            .call(json!({"path": "existing.txt", "content": "after"}))
+            .await;
+
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("requires a prior read_file"),
+            "expected read-before-write guard, got: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_rejects_stale_snapshot() {
+        let _scope = enter_test_fs_scope().await;
+        std::fs::write("stale.txt", "v1").expect("seed file");
+
+        let read = ReadFileTool.call(json!({"path":"stale.txt"})).await;
+        assert!(!read.is_error, "read failed: {}", read.content);
+
+        std::fs::write("stale.txt", "externally changed").expect("mutate file after read");
+
+        let write = WriteFileTool
+            .call(json!({"path":"stale.txt","content":"v2"}))
+            .await;
+        assert!(write.is_error, "expected stale snapshot error");
+        assert!(
+            write
+                .content
+                .contains("changed since the last read_file snapshot"),
+            "expected stale snapshot guard, got: {}",
+            write.content
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_snapshot_is_session_scoped() {
+        let _scope = enter_test_fs_scope().await;
+        let registry = crate::registry::ToolRegistry::new();
+        registry.register(ReadFileTool);
+        registry.register(WriteFileTool);
+        std::fs::write("scoped.txt", "before").expect("seed file");
+
+        let session_a = crate::registry::ToolCallContext::for_session("session-a");
+        let session_b = crate::registry::ToolCallContext::for_session("session-b");
+
+        let read = registry
+            .call_with_context("read_file", json!({"path":"scoped.txt"}), &session_a)
+            .await;
+        assert!(!read.is_error, "read failed: {}", read.content);
+
+        let write = registry
+            .call_with_context(
+                "write_file",
+                json!({"path":"scoped.txt","content":"after"}),
+                &session_b,
+            )
+            .await;
+        assert!(
+            write.is_error,
+            "expected read snapshot isolation by session id"
+        );
     }
 
     #[tokio::test]
@@ -339,6 +610,21 @@ mod tests {
         let tool = ReadFileTool;
         let out = tool.call(json!({"path": "/etc/passwd"})).await;
         assert!(out.is_error);
+    }
+
+    #[test]
+    fn sandbox_violation_hint_is_actionable() {
+        let hint =
+            sandbox_violation_hint("cat /root/secret", "cat: /root/secret: Permission denied")
+                .expect("permission denied should be annotated");
+        assert!(
+            hint.contains("sandbox_violation"),
+            "expected sandbox marker in hint: {hint}"
+        );
+        assert!(
+            hint.contains("action:"),
+            "expected actionable guidance in hint: {hint}"
+        );
     }
 }
 

@@ -27,11 +27,29 @@ impl ToolOutput {
     }
 }
 
+/// Per-call metadata passed by the agent loop into tools.
+#[derive(Debug, Clone, Default)]
+pub struct ToolCallContext {
+    /// Session identifier used for per-session tool state.
+    pub session_id: Option<String>,
+}
+
+impl ToolCallContext {
+    pub fn for_session(session_id: impl Into<String>) -> Self {
+        Self {
+            session_id: Some(session_id.into()),
+        }
+    }
+}
+
 /// Trait that each tool must implement.
 #[async_trait]
 pub trait ToolHandler: Send + Sync + 'static {
     fn schema(&self) -> ToolSchema;
     async fn call(&self, input: Value) -> ToolOutput;
+    async fn call_with_context(&self, input: Value, _context: &ToolCallContext) -> ToolOutput {
+        self.call(input).await
+    }
 }
 
 /// Central registry mapping tool names → handlers.
@@ -53,6 +71,17 @@ impl ToolRegistry {
 
     /// Execute a named tool, returning an error output if not found or input is invalid.
     pub async fn call(&self, name: &str, input: Value) -> ToolOutput {
+        let context = ToolCallContext::default();
+        self.call_with_context(name, input, &context).await
+    }
+
+    /// Execute a named tool with a call context.
+    pub async fn call_with_context(
+        &self,
+        name: &str,
+        input: Value,
+        context: &ToolCallContext,
+    ) -> ToolOutput {
         match self.handlers.get(name) {
             None => ToolOutput::err(format!("tool not found: {name}")),
             Some(handler) => {
@@ -60,7 +89,7 @@ impl ToolRegistry {
                 if let Err(e) = schema.validate(&input) {
                     return ToolOutput::err(format!("invalid input for {name}: {e}"));
                 }
-                handler.call(input).await
+                handler.call_with_context(input, context).await
             }
         }
     }
