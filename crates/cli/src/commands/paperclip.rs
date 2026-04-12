@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use clap::{Parser, Subcommand};
+use clap::{Args, Subcommand};
 use tracing::info;
 
 use harness_core::{
@@ -39,7 +39,7 @@ use crate::agent::Agent;
 // ── CLI args ───────────────────────────────────────────────────────────────────
 
 /// Paperclip control-plane integration (heartbeat, whoami)
-#[derive(Parser)]
+#[derive(Args)]
 pub struct PaperclipArgs {
     /// Paperclip API base URL
     #[arg(
@@ -77,7 +77,7 @@ enum PaperclipCommand {
     Heartbeat(HeartbeatCmd),
 }
 
-#[derive(Parser)]
+#[derive(Args)]
 struct HeartbeatCmd {
     /// Maximum tasks to process in this heartbeat
     #[arg(long, default_value = "1")]
