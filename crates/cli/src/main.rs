@@ -1,5 +1,6 @@
 mod agent;
 mod commands;
+mod instructions;
 mod ui;
 
 use clap::{Parser, Subcommand};
