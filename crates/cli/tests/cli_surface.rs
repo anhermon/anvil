@@ -29,11 +29,46 @@ fn top_level_help_lists_paperclip_subcommand() {
 }
 
 #[test]
+fn top_level_help_lists_gateway_subcommand() {
+    let output = run_anvil(&["--help"]);
+    assert!(
+        output.status.success(),
+        "anvil --help failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("gateway"),
+        "expected `gateway` in anvil --help output, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn paperclip_subcommand_help_is_available() {
     let output = run_anvil(&["paperclip", "--help"]);
     assert!(
         output.status.success(),
         "anvil paperclip --help failed: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn gateway_subcommand_help_is_available() {
+    let output = run_anvil(&["gateway", "--help"]);
+    assert!(
+        output.status.success(),
+        "anvil gateway --help failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn gateway_serve_rejects_zero_event_buffer() {
+    let output = run_anvil(&["gateway", "serve", "--event-buffer", "0"]);
+    assert!(
+        !output.status.success(),
+        "anvil gateway serve accepted zero event buffer"
     );
 }

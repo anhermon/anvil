@@ -31,6 +31,8 @@ enum Commands {
     Auth(commands::auth::AuthArgs),
     /// Paperclip control-plane integration (heartbeat, whoami)
     Paperclip(commands::paperclip::PaperclipArgs),
+    /// Run the local WebSocket control-plane gateway
+    Gateway(commands::gateway::GatewayArgs),
 }
 
 #[tokio::main]
@@ -51,5 +53,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Eval(args) => commands::eval::execute(args).await,
         Commands::Auth(args) => commands::auth::execute(args).await,
         Commands::Paperclip(args) => commands::paperclip::execute(args).await,
+        Commands::Gateway(args) => commands::gateway::execute(args).await,
     }
 }

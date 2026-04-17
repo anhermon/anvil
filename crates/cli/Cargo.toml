@@ -20,6 +20,7 @@ harness-core = { workspace = true }
 harness-tools = { workspace = true }
 harness-memory = { workspace = true }
 harness-paperclip = { workspace = true }
+harness-gateway = { workspace = true }
 harness-evolution = { path = "../evolution", optional = true }
 tokio = { workspace = true }
 futures = { workspace = true }

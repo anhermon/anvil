@@ -864,6 +864,7 @@ dependencies = [
  "futures",
  "harness-core",
  "harness-evolution",
+ "harness-gateway",
  "harness-memory",
  "harness-paperclip",
  "harness-tools",
