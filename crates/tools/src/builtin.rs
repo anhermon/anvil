@@ -653,6 +653,7 @@ mod skill_tests {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("anvil_skill_test_{}_{}", id, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("ANVIL_SKILLS_DIR", &dir);
         (dir, guard)
