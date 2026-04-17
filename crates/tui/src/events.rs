@@ -142,3 +142,178 @@ impl std::fmt::Display for GatewayStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_timestamp() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_000_000_000, 0).unwrap()
+    }
+
+    #[test]
+    fn test_agent_event_label() {
+        let turn_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+
+        assert_eq!(
+            AgentEvent::TurnStart {
+                id: turn_id,
+                session_id,
+                ts: mock_timestamp()
+            }
+            .label(),
+            "TURN_START"
+        );
+        assert_eq!(
+            AgentEvent::Token {
+                turn_id,
+                delta: "hello".into(),
+                ts: mock_timestamp()
+            }
+            .label(),
+            "TOKEN"
+        );
+        assert_eq!(
+            AgentEvent::ToolCall {
+                turn_id,
+                tool_use_id: "tool_1".into(),
+                name: "read".into(),
+                input: serde_json::json!({}),
+                ts: mock_timestamp()
+            }
+            .label(),
+            "TOOL_CALL"
+        );
+        assert_eq!(
+            AgentEvent::ToolResult {
+                turn_id,
+                tool_use_id: "tool_1".into(),
+                content: "ok".into(),
+                ts: mock_timestamp()
+            }
+            .label(),
+            "TOOL_RESULT"
+        );
+        assert_eq!(
+            AgentEvent::TurnComplete {
+                turn_id,
+                stop_reason: "end_turn".into(),
+                input_tokens: 100,
+                output_tokens: 50,
+                ts: mock_timestamp()
+            }
+            .label(),
+            "TURN_COMPLETE"
+        );
+        assert_eq!(
+            AgentEvent::Error {
+                turn_id: Some(turn_id),
+                message: "error".into(),
+                ts: mock_timestamp()
+            }
+            .label(),
+            "ERROR"
+        );
+    }
+
+    #[test]
+    fn test_agent_event_summary() {
+        let turn_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+
+        let summary = AgentEvent::TurnStart {
+            id: turn_id,
+            session_id,
+            ts: mock_timestamp(),
+        }
+        .summary();
+        assert!(summary.contains(&session_id.to_string()[..8]));
+
+        let token_short = AgentEvent::Token {
+            turn_id,
+            delta: "short".into(),
+            ts: mock_timestamp(),
+        }
+        .summary();
+        assert_eq!(token_short, "short");
+
+        let long_text = "a".repeat(80);
+        let token_long = AgentEvent::Token {
+            turn_id,
+            delta: long_text.clone(),
+            ts: mock_timestamp(),
+        }
+        .summary();
+        assert!(token_long.len() <= 61); // 60 chars + ellipsis
+        assert!(token_long.ends_with('…'));
+
+        let tool_call = AgentEvent::ToolCall {
+            turn_id,
+            tool_use_id: "tool_1".into(),
+            name: "read".into(),
+            input: serde_json::json!({}),
+            ts: mock_timestamp(),
+        }
+        .summary();
+        assert_eq!(tool_call, "read");
+
+        let turn_complete = AgentEvent::TurnComplete {
+            turn_id,
+            stop_reason: "end_turn".into(),
+            input_tokens: 100,
+            output_tokens: 50,
+            ts: mock_timestamp(),
+        }
+        .summary();
+        assert!(turn_complete.contains("100"));
+        assert!(turn_complete.contains("50"));
+        assert!(turn_complete.contains("end_turn"));
+    }
+
+    #[test]
+    fn test_agent_event_detail_is_valid_json() {
+        let event = AgentEvent::Error {
+            turn_id: None,
+            message: "test error".into(),
+            ts: mock_timestamp(),
+        };
+        let detail = event.detail();
+        assert!(serde_json::from_str::<serde_json::Value>(&detail).is_ok());
+    }
+
+    #[test]
+    fn test_agent_event_timestamp() {
+        let ts = mock_timestamp();
+        let turn_id = Uuid::new_v4();
+
+        assert_eq!(
+            AgentEvent::Token {
+                turn_id,
+                delta: "test".into(),
+                ts
+            }
+            .timestamp(),
+            ts
+        );
+    }
+
+    #[test]
+    fn test_gateway_status_display() {
+        assert_eq!(format!("{}", GatewayStatus::Connecting), "connecting…");
+        assert_eq!(format!("{}", GatewayStatus::Connected), "connected");
+        assert_eq!(
+            format!(
+                "{}",
+                GatewayStatus::Disconnected {
+                    reason: "timeout".into()
+                }
+            ),
+            "disconnected: timeout"
+        );
+        assert_eq!(
+            format!("{}", GatewayStatus::Reconnecting { attempt: 3 }),
+            "reconnecting (attempt 3)…"
+        );
+    }
+}

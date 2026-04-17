@@ -176,3 +176,168 @@ impl App {
         self.detail_offset = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn mock_app() -> App {
+        let (tx, rx) = mpsc::unbounded_channel();
+        App::new(5, "ws://localhost:8080".into(), rx, tx)
+    }
+
+    fn mock_event() -> AgentEvent {
+        AgentEvent::Token {
+            turn_id: Uuid::new_v4(),
+            delta: "test".into(),
+            ts: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_app_new() {
+        let app = mock_app();
+        assert_eq!(app.max_events, 5);
+        assert_eq!(app.gateway_url, "ws://localhost:8080");
+        assert_eq!(app.events.len(), 0);
+        assert_eq!(app.list_offset, 0);
+        assert_eq!(app.selected, None);
+        assert_eq!(app.detail_offset, 0);
+    }
+
+    #[test]
+    fn test_push_event_basic() {
+        let mut app = mock_app();
+        app.push_event(mock_event());
+        assert_eq!(app.events.len(), 1);
+    }
+
+    #[test]
+    fn test_push_event_caps_at_max() {
+        let mut app = mock_app();
+        for _ in 0..10 {
+            app.push_event(mock_event());
+        }
+        assert_eq!(app.events.len(), 5); // capped at max_events
+    }
+
+    #[test]
+    fn test_push_event_adjusts_selection_on_overflow() {
+        let mut app = mock_app();
+        // Fill to capacity
+        for _ in 0..5 {
+            app.push_event(mock_event());
+        }
+        app.selected = Some(2);
+        app.list_offset = 2;
+
+        // Push one more — should evict oldest and adjust selection
+        app.push_event(mock_event());
+
+        assert_eq!(app.events.len(), 5);
+        assert_eq!(app.selected, Some(1)); // decremented from 2
+        assert_eq!(app.list_offset, 1); // decremented from 2
+    }
+
+    #[test]
+    fn test_select_next_basic() {
+        let mut app = mock_app();
+        app.push_event(mock_event());
+        app.push_event(mock_event());
+        app.push_event(mock_event());
+
+        app.select_next();
+        assert_eq!(app.selected, Some(0));
+
+        app.select_next();
+        assert_eq!(app.selected, Some(1));
+
+        app.select_next();
+        assert_eq!(app.selected, Some(2));
+
+        // At end, should stay at 2
+        app.select_next();
+        assert_eq!(app.selected, Some(2));
+    }
+
+    #[test]
+    fn test_select_prev_basic() {
+        let mut app = mock_app();
+        app.push_event(mock_event());
+        app.push_event(mock_event());
+        app.push_event(mock_event());
+
+        app.selected = Some(2);
+
+        app.select_prev();
+        assert_eq!(app.selected, Some(1));
+
+        app.select_prev();
+        assert_eq!(app.selected, Some(0));
+
+        // At start, should stay at 0
+        app.select_prev();
+        assert_eq!(app.selected, Some(0));
+    }
+
+    #[test]
+    fn test_select_next_empty_list() {
+        let mut app = mock_app();
+        app.select_next();
+        assert_eq!(app.selected, None);
+    }
+
+    #[test]
+    fn test_select_prev_empty_list() {
+        let mut app = mock_app();
+        app.select_prev();
+        assert_eq!(app.selected, None);
+    }
+
+    #[test]
+    fn test_handle_key_quit_q() {
+        let mut app = mock_app();
+        let result = app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(matches!(result, Some(AppEvent::Quit)));
+    }
+
+    #[test]
+    fn test_handle_key_quit_ctrl_c() {
+        let mut app = mock_app();
+        let result = app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(matches!(result, Some(AppEvent::Quit)));
+    }
+
+    #[test]
+    fn test_handle_key_navigation() {
+        let mut app = mock_app();
+        for _ in 0..3 {
+            app.push_event(mock_event());
+        }
+
+        app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.selected, Some(0));
+
+        app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.selected, Some(1));
+
+        app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.selected, Some(0));
+    }
+
+    #[test]
+    fn test_handle_key_home_end() {
+        let mut app = mock_app();
+        for _ in 0..3 {
+            app.push_event(mock_event());
+        }
+
+        app.handle_key(KeyCode::End, KeyModifiers::NONE);
+        assert_eq!(app.selected, Some(2));
+
+        app.handle_key(KeyCode::Home, KeyModifiers::NONE);
+        assert_eq!(app.selected, Some(0));
+    }
+}
