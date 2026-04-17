@@ -26,7 +26,8 @@ echo "📥 Fetching latest main..."
 git fetch origin main --quiet 2>/dev/null || git fetch origin master --quiet 2>/dev/null || echo "Could not fetch origin"
 
 # Check if branch is up-to-date with main
-MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$MAIN_BRANCH" ] && MAIN_BRANCH="main"
 if git rev-parse --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
   BEHIND=$(git rev-list --count HEAD..origin/$MAIN_BRANCH 2>/dev/null || echo "0")
   AHEAD=$(git rev-list --count origin/$MAIN_BRANCH..HEAD 2>/dev/null || echo "0")

@@ -38,7 +38,8 @@ fi
 
 # Check commit message format
 echo "🔍 Validating commit messages..."
-MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$MAIN_BRANCH" ] && MAIN_BRANCH="main"
 INVALID_COMMITS=$(git log origin/$MAIN_BRANCH..HEAD --format="%s" | grep -v -E '^(feat|fix|docs|style|refactor|perf|test|chore|build|ci|revert)(\(.+\))?: .+ \(ANGA-[0-9]+\)$' | wc -l || echo "0")
 
 if [ "$INVALID_COMMITS" -gt 0 ]; then

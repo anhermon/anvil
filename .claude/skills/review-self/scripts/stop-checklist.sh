@@ -12,7 +12,8 @@ echo ""
 
 # Get current branch and commit info
 CURRENT_BRANCH=$(git branch --show-current)
-MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+MAIN_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$MAIN_BRANCH" ] && MAIN_BRANCH="main"
 COMMIT_COUNT=$(git rev-list --count origin/$MAIN_BRANCH..HEAD 2>/dev/null || echo "0")
 
 # Generate the checklist
