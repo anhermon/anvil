@@ -126,7 +126,7 @@ cargo build -p harness-cli
 # Search episodic memory
 anvil memory search "recent goals"
 
-# Check your config
+# Check config + native build prerequisites (cc, pkg-config, openssl)
 anvil config --check
 ```
 
