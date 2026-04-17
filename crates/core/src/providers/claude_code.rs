@@ -20,7 +20,11 @@ pub struct ClaudeCodeProvider {
 /// Returns a hint suggesting the `claude` provider as a fallback, but only when
 /// `ANTHROPIC_API_KEY` is not already set in the environment.
 fn fallback_hint() -> String {
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+    fallback_hint_for_api_key(std::env::var("ANTHROPIC_API_KEY").ok())
+}
+
+fn fallback_hint_for_api_key(api_key: Option<String>) -> String {
+    if api_key.is_some() {
         String::new()
     } else {
         "\nTip: try --provider claude with ANTHROPIC_API_KEY set".to_string()
@@ -305,18 +309,14 @@ mod tests {
 
     #[test]
     fn fallback_hint_shown_when_api_key_unset() {
-        // Ensure the key is not set for this test.
-        std::env::remove_var("ANTHROPIC_API_KEY");
-        let hint = fallback_hint();
+        let hint = fallback_hint_for_api_key(None);
         assert!(hint.contains("--provider claude"));
         assert!(hint.contains("ANTHROPIC_API_KEY"));
     }
 
     #[test]
     fn fallback_hint_hidden_when_api_key_set() {
-        std::env::set_var("ANTHROPIC_API_KEY", "sk-test-key");
-        let hint = fallback_hint();
+        let hint = fallback_hint_for_api_key(Some("sk-test-key".to_string()));
         assert!(hint.is_empty());
-        std::env::remove_var("ANTHROPIC_API_KEY");
     }
 }

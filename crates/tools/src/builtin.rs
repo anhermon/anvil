@@ -150,8 +150,13 @@ impl ToolHandler for BashExecTool {
         let output = tokio::time::timeout(
             Duration::from_secs(30),
             tokio::task::spawn_blocking(move || {
-                std::process::Command::new("sh")
-                    .arg("-c")
+                let (shell, flag) = if cfg!(windows) {
+                    ("cmd", "/C")
+                } else {
+                    ("sh", "-c")
+                };
+                std::process::Command::new(shell)
+                    .arg(flag)
                     .arg(&command)
                     .output()
             }),
@@ -284,9 +289,8 @@ mod tests {
     #[tokio::test]
     async fn bash_exec_nonzero_exit_is_error() {
         let tool = BashExecTool;
-        // ls on a non-existent path exits non-zero; ls is in the allowlist
         let out = tool
-            .call(json!({"command": "ls /this_path_does_not_exist_xyz_12345"}))
+            .call(json!({"command": "cargo --definitely-not-a-real-cargo-flag"}))
             .await;
         assert!(out.is_error, "expected error for non-zero exit");
     }
@@ -649,6 +653,7 @@ mod skill_tests {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("anvil_skill_test_{}_{}", id, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("ANVIL_SKILLS_DIR", &dir);
         (dir, guard)
