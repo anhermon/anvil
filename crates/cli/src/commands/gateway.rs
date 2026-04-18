@@ -7,6 +7,8 @@ use std::time::Duration;
 use tokio::{signal, sync::mpsc};
 use uuid::Uuid;
 
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Args)]
 pub struct GatewayArgs {
     #[command(subcommand)]
@@ -75,7 +77,12 @@ async fn serve(args: ServeArgs) -> Result<()> {
     };
 
     signal::ctrl_c().await?;
-    handle.shutdown().await;
+    if !handle.shutdown_with_timeout(SHUTDOWN_TIMEOUT).await {
+        eprintln!(
+            "gateway graceful shutdown exceeded {}s; forced shutdown",
+            SHUTDOWN_TIMEOUT.as_secs()
+        );
+    }
     if let Some(task) = hello_task {
         task.abort();
     }

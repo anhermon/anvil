@@ -13,7 +13,7 @@ use axum::{
     routing::get,
     Router,
 };
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::TcpListener,
     sync::{broadcast, mpsc},
@@ -140,6 +140,25 @@ impl GatewayHandle {
             let _ = tx.send(());
         }
         let _ = self.server_task.await;
+    }
+
+    /// Gracefully shut down the gateway server, aborting it if it exceeds `timeout`.
+    ///
+    /// Returns `true` when graceful shutdown completes before the timeout and `false`
+    /// when the server task had to be aborted.
+    pub async fn shutdown_with_timeout(mut self, timeout: Duration) -> bool {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+
+        match tokio::time::timeout(timeout, &mut self.server_task).await {
+            Ok(_) => true,
+            Err(_) => {
+                self.server_task.abort();
+                let _ = self.server_task.await;
+                false
+            }
+        }
     }
 }
 
@@ -329,6 +348,23 @@ mod tests {
 
         ws.close(None).await.ok();
         handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_timeout_returns_with_active_websocket() {
+        use tokio_tungstenite::connect_async;
+
+        let handle = start_test_gateway().await;
+        let ws_url = format!("ws://{}/ws", handle.addr);
+        let (_ws, _) = connect_async(&ws_url).await.expect("ws connect");
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle.shutdown_with_timeout(std::time::Duration::from_millis(10)),
+        )
+        .await;
+
+        assert!(result.is_ok(), "shutdown timeout should prevent hangs");
     }
 
     #[tokio::test]
