@@ -13,7 +13,7 @@ use harness_tools::{
         BashExecTool, EchoTool, ListSkillsTool, ReadFileTool, ReadSkillTool, RefineSkillTool,
         SaveSkillTool, SpawnSubagentTool, WriteFileTool,
     },
-    ToolRegistry,
+    ToolCallContext, ToolRegistry,
 };
 use tracing::{debug, info, warn};
 
@@ -264,6 +264,7 @@ impl Agent {
 
                     // Execute each tool and collect result blocks.
                     let mut result_blocks: Vec<ContentBlock> = Vec::new();
+                    let tool_context = ToolCallContext::for_session(session.id.to_string());
                     for (tool_use_id, name, input) in tool_calls {
                         info!(tool = %name, depth = self.depth, "calling tool");
 
@@ -293,7 +294,9 @@ impl Agent {
                                 }
                             }
                         } else {
-                            self.tools.call(&name, input).await
+                            self.tools
+                                .call_with_context(&name, input, &tool_context)
+                                .await
                         };
 
                         if output.is_error {

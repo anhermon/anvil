@@ -6,5 +6,5 @@ pub use builtin::{
     BashExecTool, EchoTool, ListSkillsTool, ReadFileTool, ReadSkillTool, RefineSkillTool,
     SaveSkillTool, SpawnSubagentTool, WriteFileTool,
 };
-pub use registry::{ToolHandler, ToolOutput, ToolRegistry};
+pub use registry::{ToolCallContext, ToolHandler, ToolOutput, ToolRegistry};
 pub use schema::ToolSchema;
