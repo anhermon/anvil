@@ -200,6 +200,25 @@ summarizing what was done. The CTO will review and merge.
 
 ---
 
+## Fork Workflow — Upstream Search Requirement
+
+**Anvil is a fork of Claude Code.** Before filing issues touching cross-cutting concerns, search the
+upstream tracker (https://github.com/anthropics/claude-code/issues) to prevent parallel implementation.
+
+**Scope gate applies to:**
+- Error/failure taxonomy
+- Database schemas
+- Agent configuration patterns
+- Platform-level abstractions
+
+**Required checklist item:**
+- [ ] Searched upstream tracker for related in-flight work
+- [ ] Documented keywords searched, related issues found (or "None"), and why this is fork-specific
+
+See issue templates in `.github/ISSUE_TEMPLATE/` for the required format.
+
+---
+
 ## Roadmap context
 
 The project has completed through **Phase 6**:
