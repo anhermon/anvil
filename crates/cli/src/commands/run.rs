@@ -102,13 +102,15 @@ impl UiHook for CliHook {
 }
 
 pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
+    let mut config = Config::load()?;
 
     let backend = args
         .provider
         .as_deref()
         .unwrap_or(&config.provider.backend)
         .to_string();
+    // Persist the effective backend so sub-agents use the same provider family.
+    config.provider.backend = backend.clone();
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");

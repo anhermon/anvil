@@ -125,6 +125,29 @@ anvil memory search "recent goals"
 anvil config --check
 ```
 
+### Sub-agent profiles
+
+You can define named sub-agent profiles in config-level settings or project metadata.
+Profiles can override system prompt, model, and tool access.
+
+```toml
+[agent.subagent_profiles.reviewer]
+system_prompt = "You are a strict code reviewer focused on regressions."
+model = "claude-sonnet-4-5"
+tool_allowlist = ["read_file", "echo"]
+tool_denylist = ["bash_exec"]
+
+[agent.project_metadata.subagent_profiles.researcher]
+system_prompt = "Gather facts and references only."
+tool_allowlist = ["read_file", "list_skills", "read_skill"]
+```
+
+Then call `spawn_subagent` with an optional `profile` field:
+
+```json
+{ "goal": "review src/auth.rs", "context": "focus on security", "profile": "reviewer" }
+```
+
 ---
 
 ## Providers

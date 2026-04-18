@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use futures::future::BoxFuture;
 use harness_core::{
-    config::Config,
+    config::{Config, SubagentProfileConfig},
     message::{ContentBlock, Message, MessageContent, Role, StopReason},
-    provider::Provider,
+    provider::{EchoProvider, Provider},
+    providers::{ClaudeCodeProvider, ClaudeProvider, OpenAiProvider},
     session::{Session, SessionStatus},
 };
 use harness_memory::MemoryDb;
@@ -19,6 +20,8 @@ use tracing::{debug, info, warn};
 
 /// Maximum sub-agent nesting depth to prevent infinite recursion.
 const MAX_SUBAGENT_DEPTH: usize = 4;
+const DEFAULT_SYSTEM_PROMPT: &str =
+    "You are a helpful assistant. Complete the user's goal concisely.";
 
 /// Callback interface for terminal UI events emitted by the agent loop.
 ///
@@ -83,16 +86,7 @@ impl Agent {
         config: Config,
         depth: usize,
     ) -> Self {
-        let tools = ToolRegistry::new();
-        tools.register(EchoTool);
-        tools.register(ReadFileTool);
-        tools.register(SpawnSubagentTool);
-        tools.register(BashExecTool);
-        tools.register(WriteFileTool);
-        tools.register(ListSkillsTool);
-        tools.register(ReadSkillTool);
-        tools.register(SaveSkillTool);
-        tools.register(RefineSkillTool);
+        let tools = Self::build_tool_registry(None);
         Self {
             provider,
             memory,
@@ -101,6 +95,70 @@ impl Agent {
             depth,
             hook: Arc::new(NoopHook),
         }
+    }
+
+    fn normalize_tool_name(name: &str) -> String {
+        name.trim().to_ascii_lowercase()
+    }
+
+    fn build_tool_registry(profile: Option<&SubagentProfileConfig>) -> ToolRegistry {
+        let allowlist: Option<HashSet<String>> = profile.and_then(|p| {
+            if p.tool_allowlist.is_empty() {
+                None
+            } else {
+                Some(
+                    p.tool_allowlist
+                        .iter()
+                        .map(|t| Self::normalize_tool_name(t))
+                        .collect(),
+                )
+            }
+        });
+        let denylist: HashSet<String> = profile
+            .map(|p| {
+                p.tool_denylist
+                    .iter()
+                    .map(|t| Self::normalize_tool_name(t))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let is_allowed = |tool_name: &str| -> bool {
+            let name = Self::normalize_tool_name(tool_name);
+            let allow_ok = allowlist.as_ref().is_none_or(|set| set.contains(&name));
+            let deny_hit = denylist.contains(&name);
+            allow_ok && !deny_hit
+        };
+
+        let tools = ToolRegistry::new();
+        if is_allowed("echo") {
+            tools.register(EchoTool);
+        }
+        if is_allowed("read_file") {
+            tools.register(ReadFileTool);
+        }
+        if is_allowed("spawn_subagent") {
+            tools.register(SpawnSubagentTool);
+        }
+        if is_allowed("bash_exec") {
+            tools.register(BashExecTool);
+        }
+        if is_allowed("write_file") {
+            tools.register(WriteFileTool);
+        }
+        if is_allowed("list_skills") {
+            tools.register(ListSkillsTool);
+        }
+        if is_allowed("read_skill") {
+            tools.register(ReadSkillTool);
+        }
+        if is_allowed("save_skill") {
+            tools.register(SaveSkillTool);
+        }
+        if is_allowed("refine_skill") {
+            tools.register(RefineSkillTool);
+        }
+        tools
     }
 
     /// Run until the agent signals completion or max iterations reached.
@@ -144,7 +202,7 @@ impl Agent {
             .agent
             .system_prompt
             .as_deref()
-            .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.")
+            .unwrap_or(DEFAULT_SYSTEM_PROMPT)
             .to_string();
 
         let system_with_memory = self
@@ -278,15 +336,26 @@ impl Agent {
                             .collect::<String>();
                         self.hook.on_tool_call(&name, &input_preview);
 
-                        let output = if name == "spawn_subagent" {
+                        let output = if name == "spawn_subagent"
+                            && self.tools.contains("spawn_subagent")
+                        {
                             let sub_goal = input["goal"].as_str().unwrap_or("").to_string();
                             let context = input
                                 .get("context")
                                 .and_then(|c| c.as_str())
                                 .unwrap_or("")
                                 .to_string();
+                            let profile = input
+                                .get("profile")
+                                .and_then(|p| p.as_str())
+                                .map(str::trim)
+                                .filter(|p| !p.is_empty())
+                                .map(ToString::to_string);
                             info!(sub_goal = %sub_goal, depth = self.depth, "spawning sub-agent");
-                            match self.spawn_subagent(&sub_goal, &context).await {
+                            match self
+                                .spawn_subagent(&sub_goal, &context, profile.as_deref())
+                                .await
+                            {
                                 Ok(result) => harness_tools::ToolOutput::ok(result),
                                 Err(e) => {
                                     harness_tools::ToolOutput::err(format!("sub-agent error: {e}"))
@@ -325,7 +394,7 @@ impl Agent {
                 .agent
                 .system_prompt
                 .as_deref()
-                .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.");
+                .unwrap_or(DEFAULT_SYSTEM_PROMPT);
             let engine = harness_evolution::defaults::default_engine(Arc::clone(&self.memory));
             match engine.evolve(&session, prompt).await {
                 Ok(outcome) => {
@@ -369,15 +438,91 @@ impl Agent {
         }
     }
 
+    fn resolve_subagent_profile(
+        &self,
+        profile_name: Option<&str>,
+    ) -> Option<(String, SubagentProfileConfig)> {
+        let requested = profile_name.map(str::trim).filter(|n| !n.is_empty())?;
+        match self.config.agent.subagent_profile(requested) {
+            Some(profile) => Some((requested.to_string(), profile.clone())),
+            None => {
+                warn!(
+                    profile = %requested,
+                    "sub-agent profile not found; falling back to parent configuration"
+                );
+                None
+            }
+        }
+    }
+
+    fn provider_for_subagent_profile(
+        &self,
+        profile: Option<&SubagentProfileConfig>,
+    ) -> Arc<dyn Provider> {
+        let Some(model) = profile
+            .and_then(|p| p.model.as_deref())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+        else {
+            return Arc::clone(&self.provider);
+        };
+
+        let backend = self.config.provider.backend.as_str();
+        let provider: anyhow::Result<Arc<dyn Provider>> = match backend {
+            "echo" => Ok(Arc::new(EchoProvider::new())),
+            "claude-code" | "cc" => Ok(Arc::new(ClaudeCodeProvider::new(model))),
+            "openai" | "vllm" => OpenAiProvider::from_env(
+                model,
+                self.config.provider.max_tokens,
+                self.config.provider.base_url.clone(),
+            )
+            .map(|p| Arc::new(p) as Arc<dyn Provider>)
+            .map_err(|e| anyhow::anyhow!("{e}")),
+            "claude" => ClaudeProvider::from_env(model, self.config.provider.max_tokens)
+                .map(|p| Arc::new(p) as Arc<dyn Provider>)
+                .map_err(|e| anyhow::anyhow!("{e}")),
+            other => Err(anyhow::anyhow!(
+                "unsupported provider backend for model override: {other}"
+            )),
+        };
+
+        match provider {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    backend = %self.config.provider.backend,
+                    model = %model,
+                    error = %e,
+                    "failed to apply sub-agent model override; using parent provider"
+                );
+                Arc::clone(&self.provider)
+            }
+        }
+    }
+
     /// Spawn a nested sub-agent to handle a delegated goal.
     ///
     /// Returns the sub-agent final response text, or an error if depth
     /// exceeds [`MAX_SUBAGENT_DEPTH`].
-    async fn spawn_subagent(&self, goal: &str, context: &str) -> anyhow::Result<String> {
+    async fn spawn_subagent(
+        &self,
+        goal: &str,
+        context: &str,
+        profile_name: Option<&str>,
+    ) -> anyhow::Result<String> {
         if self.depth >= MAX_SUBAGENT_DEPTH {
             return Err(anyhow::anyhow!(
                 "sub-agent depth limit ({MAX_SUBAGENT_DEPTH}) reached -- cannot spawn further"
             ));
+        }
+
+        let selected_profile = self.resolve_subagent_profile(profile_name);
+        let profile_cfg = selected_profile.as_ref().map(|(_, p)| p);
+        let mut sub_config = self.config.clone();
+        if let Some(profile) = profile_cfg {
+            if let Some(prompt) = profile.system_prompt.as_ref() {
+                sub_config.agent.system_prompt = Some(prompt.clone());
+            }
         }
 
         let full_goal = if context.is_empty() {
@@ -386,12 +531,14 @@ impl Agent {
             format!("{context}\n\n{goal}")
         };
 
-        let sub_agent = Agent::new_with_depth(
-            Arc::clone(&self.provider),
-            Arc::clone(&self.memory),
-            self.config.clone(),
-            self.depth + 1,
-        );
+        let sub_agent = Agent {
+            provider: self.provider_for_subagent_profile(profile_cfg),
+            memory: Arc::clone(&self.memory),
+            tools: Self::build_tool_registry(profile_cfg),
+            config: sub_config,
+            depth: self.depth + 1,
+            hook: Arc::new(NoopHook),
+        };
 
         let session = sub_agent.run(&full_goal).await?;
 
@@ -405,6 +552,10 @@ impl Agent {
         info!(
             depth = self.depth,
             result_len = result.len(),
+            profile = selected_profile
+                .as_ref()
+                .map(|(name, _)| name.as_str())
+                .unwrap_or("default"),
             "sub-agent completed"
         );
 
@@ -418,7 +569,7 @@ mod tests {
     use async_trait::async_trait;
     use harness_core::{
         message::{ContentBlock, MessageContent, Role, StopReason, TurnResponse, Usage},
-        provider::Provider,
+        provider::{Provider, ToolDef},
     };
     use harness_tools::builtin::EchoTool;
     use std::sync::{Arc, Mutex};
@@ -451,6 +602,70 @@ mod tests {
         ) -> harness_core::error::Result<TurnResponse> {
             let mut guard = self.responses.lock().unwrap();
             Ok(guard.pop().expect("ScriptedProvider ran out of responses"))
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ToolCallCapture {
+        system_prompt: String,
+        tool_names: Vec<String>,
+    }
+
+    /// Provider that captures each complete_with_tools call and pops scripted responses.
+    struct CapturingScriptedProvider {
+        responses: Mutex<Vec<TurnResponse>>,
+        captures: Arc<Mutex<Vec<ToolCallCapture>>>,
+    }
+
+    impl CapturingScriptedProvider {
+        fn new(responses: Vec<TurnResponse>, captures: Arc<Mutex<Vec<ToolCallCapture>>>) -> Self {
+            let mut r = responses;
+            r.reverse();
+            Self {
+                responses: Mutex::new(r),
+                captures,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Provider for CapturingScriptedProvider {
+        fn name(&self) -> &str {
+            "capturing-scripted"
+        }
+
+        async fn complete(
+            &self,
+            _messages: &[harness_core::message::Message],
+        ) -> harness_core::error::Result<TurnResponse> {
+            let mut guard = self.responses.lock().unwrap();
+            Ok(guard
+                .pop()
+                .expect("CapturingScriptedProvider ran out of responses"))
+        }
+
+        async fn complete_with_tools(
+            &self,
+            messages: &[harness_core::message::Message],
+            tools: &[ToolDef],
+        ) -> harness_core::error::Result<TurnResponse> {
+            let system_prompt = messages
+                .iter()
+                .find(|m| matches!(m.role, Role::System))
+                .and_then(|m| m.text())
+                .unwrap_or("")
+                .to_string();
+            let tool_names = tools.iter().map(|t| t.name.clone()).collect();
+            let mut captures = self.captures.lock().unwrap();
+            captures.push(ToolCallCapture {
+                system_prompt,
+                tool_names,
+            });
+
+            let mut responses = self.responses.lock().unwrap();
+            Ok(responses
+                .pop()
+                .expect("CapturingScriptedProvider ran out of responses"))
         }
     }
 
@@ -613,7 +828,7 @@ mod tests {
         let config = make_config(10);
 
         let deep_agent = Agent::new_with_depth(provider, memory, config, MAX_SUBAGENT_DEPTH);
-        let result = deep_agent.spawn_subagent("unreachable", "").await;
+        let result = deep_agent.spawn_subagent("unreachable", "", None).await;
 
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
@@ -634,11 +849,162 @@ mod tests {
         let provider: Arc<dyn Provider> = provider;
         let agent = Agent::new_with_depth(Arc::clone(&provider), memory, config, 0);
         let result = agent
-            .spawn_subagent("do the thing", "background: xyz")
+            .spawn_subagent("do the thing", "background: xyz", None)
             .await
             .unwrap();
 
         assert_eq!(result, "context-aware result");
+    }
+
+    #[tokio::test]
+    async fn subagent_profile_from_config_isolates_prompt_and_tools() {
+        let captures: Arc<Mutex<Vec<ToolCallCapture>>> = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingScriptedProvider::new(
+            vec![
+                tool_use_response(
+                    "sa-1",
+                    "spawn_subagent",
+                    serde_json::json!({"goal": "review", "profile": "reviewer"}),
+                ),
+                end_turn_response("subagent complete"),
+                end_turn_response("main complete"),
+            ],
+            Arc::clone(&captures),
+        ));
+
+        let memory = make_memory().await;
+        let mut config = make_config(10);
+        config.agent.subagent_profiles.insert(
+            "reviewer".to_string(),
+            SubagentProfileConfig {
+                system_prompt: Some("You are the reviewer profile.".to_string()),
+                model: None,
+                tool_allowlist: vec!["echo".to_string(), "read_file".to_string()],
+                tool_denylist: vec!["read_file".to_string()],
+            },
+        );
+
+        let agent = Agent::new(provider as Arc<dyn Provider>, memory, config);
+        let session = agent.run("delegate").await.unwrap();
+
+        assert_eq!(session.status, harness_core::session::SessionStatus::Done);
+        let captures = captures.lock().unwrap();
+        assert!(
+            captures.len() >= 2,
+            "expected captures for root and sub-agent calls"
+        );
+
+        let subagent_capture = &captures[1];
+        assert!(
+            subagent_capture
+                .system_prompt
+                .contains("You are the reviewer profile."),
+            "expected profile prompt override in sub-agent system prompt"
+        );
+        assert_eq!(
+            subagent_capture.tool_names,
+            vec!["echo".to_string()],
+            "expected allowlist/denylist to isolate sub-agent tools"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_profile_from_project_metadata_is_supported() {
+        let captures: Arc<Mutex<Vec<ToolCallCapture>>> = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingScriptedProvider::new(
+            vec![
+                tool_use_response(
+                    "sa-1",
+                    "spawn_subagent",
+                    serde_json::json!({"goal": "review", "profile": "metadata-reviewer"}),
+                ),
+                end_turn_response("subagent complete"),
+                end_turn_response("main complete"),
+            ],
+            Arc::clone(&captures),
+        ));
+
+        let memory = make_memory().await;
+        let mut config = make_config(10);
+        config.agent.project_metadata.subagent_profiles.insert(
+            "metadata-reviewer".to_string(),
+            SubagentProfileConfig {
+                system_prompt: Some("Metadata profile prompt.".to_string()),
+                model: None,
+                tool_allowlist: vec!["echo".to_string()],
+                tool_denylist: Vec::new(),
+            },
+        );
+
+        let agent = Agent::new(provider as Arc<dyn Provider>, memory, config);
+        agent.run("delegate").await.unwrap();
+
+        let captures = captures.lock().unwrap();
+        assert!(
+            captures.len() >= 2,
+            "expected captures for root and sub-agent calls"
+        );
+        let subagent_capture = &captures[1];
+        assert!(
+            subagent_capture
+                .system_prompt
+                .contains("Metadata profile prompt."),
+            "expected project-metadata profile prompt override"
+        );
+        assert_eq!(
+            subagent_capture.tool_names,
+            vec!["echo".to_string()],
+            "expected project metadata profile tool allowlist"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_profile_missing_falls_back_to_parent_configuration() {
+        let captures: Arc<Mutex<Vec<ToolCallCapture>>> = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingScriptedProvider::new(
+            vec![
+                tool_use_response(
+                    "sa-1",
+                    "spawn_subagent",
+                    serde_json::json!({"goal": "review", "profile": "does-not-exist"}),
+                ),
+                end_turn_response("subagent complete"),
+                end_turn_response("main complete"),
+            ],
+            Arc::clone(&captures),
+        ));
+
+        let memory = make_memory().await;
+        let config = make_config(10);
+        let agent = Agent::new(provider as Arc<dyn Provider>, memory, config);
+        agent.run("delegate").await.unwrap();
+
+        let captures = captures.lock().unwrap();
+        assert!(
+            captures.len() >= 2,
+            "expected captures for root and sub-agent calls"
+        );
+        let subagent_capture = &captures[1];
+        assert!(
+            subagent_capture
+                .system_prompt
+                .contains(DEFAULT_SYSTEM_PROMPT),
+            "expected default prompt when profile is missing"
+        );
+        assert!(
+            subagent_capture
+                .tool_names
+                .iter()
+                .any(|name| name == "bash_exec"),
+            "expected default tool set when profile is missing"
+        );
+        assert!(
+            subagent_capture
+                .tool_names
+                .iter()
+                .any(|name| name == "spawn_subagent"),
+            "expected default tool set when profile is missing"
+        );
     }
 
     // -- New tests for memory recall and session continuity -------------------
