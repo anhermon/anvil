@@ -232,7 +232,32 @@ impl Applier for DefaultApplier {
 
 /// Construct a fully-wired [`crate::engine::EvolutionEngine`] with all-default
 /// stages and the provided memory store.
+///
+/// **Safety gates enabled**: Uses [`crate::safe_applier::SafeApplier`] which implements:
+/// - Pre-hook: backs up current prompt before applying
+/// - Post-hook: runs benchmarks and compares to baseline
+/// - Auto-rollback: reverts if performance regresses >10%
 pub fn default_engine(memory: Arc<MemoryDb>) -> crate::engine::EvolutionEngine {
+    use std::sync::Arc;
+    crate::engine::EvolutionEngine {
+        observer: Arc::new(DefaultObserver),
+        critic: Arc::new(DefaultCritic),
+        generator: Arc::new(DefaultGenerator),
+        validators: vec![
+            Arc::new(DefaultValidator::new("safety")),
+            Arc::new(DefaultValidator::new("coherence")),
+            Arc::new(DefaultValidator::new("length")),
+            Arc::new(DefaultValidator::new("format")),
+            Arc::new(DefaultValidator::new("relevance")),
+        ],
+        applier: Arc::new(crate::safe_applier::SafeApplier::new()),
+        memory,
+    }
+}
+
+/// Construct an evolution engine with the original no-op applier (for testing).
+#[allow(dead_code)]
+pub fn unsafe_engine(memory: Arc<MemoryDb>) -> crate::engine::EvolutionEngine {
     use std::sync::Arc;
     crate::engine::EvolutionEngine {
         observer: Arc::new(DefaultObserver),

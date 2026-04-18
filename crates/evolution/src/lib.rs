@@ -20,6 +20,7 @@
 
 pub mod defaults;
 pub mod engine;
+pub mod safe_applier;
 pub mod traits;
 pub mod types;
 
@@ -27,6 +28,7 @@ pub mod types;
 mod tests;
 
 pub use engine::EvolutionEngine;
+pub use safe_applier::SafeApplier;
 pub use types::{
     EvolutionOutcome, EvolutionRecord, PromptCandidate, PromptScore, SessionSummary, ValidationVote,
 };
