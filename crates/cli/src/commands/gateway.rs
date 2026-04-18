@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use harness_gateway::{AgentEvent, Gateway, GatewayConfig};
+use std::time::Duration;
 use tokio::{signal, sync::mpsc};
 use uuid::Uuid;
 
@@ -28,7 +29,7 @@ struct ServeArgs {
     #[arg(long, default_value_t = 256, value_parser = parse_event_buffer)]
     event_buffer: usize,
 
-    /// Emit a startup token event after the gateway starts.
+    /// Emit a startup token event after the first WebSocket client connects.
     #[arg(long)]
     emit_hello: bool,
 }
@@ -50,11 +51,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
     println!("health: http://{}/health", handle.addr);
     println!("websocket: ws://{}/ws", handle.addr);
 
-    if args.emit_hello {
-        handle.emit(AgentEvent::turn_start(Uuid::new_v4())).await;
-        handle.emit(AgentEvent::token("anvil gateway online")).await;
-    }
-
     let (_placeholder_tx, placeholder_rx) = mpsc::channel(1);
     let mut cmd_rx = std::mem::replace(&mut handle.cmd_rx, placeholder_rx);
     let command_drain = tokio::spawn(async move {
@@ -63,8 +59,26 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
     });
 
+    let hello_task = if args.emit_hello {
+        Some(tokio::spawn({
+            let handle = handle.clone_event_handle();
+            async move {
+                while handle.connected_clients() == 0 {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                handle.emit(AgentEvent::turn_start(Uuid::new_v4())).await;
+                handle.emit(AgentEvent::token("anvil gateway online")).await;
+            }
+        }))
+    } else {
+        None
+    };
+
     signal::ctrl_c().await?;
     handle.shutdown().await;
+    if let Some(task) = hello_task {
+        task.abort();
+    }
     command_drain.abort();
     Ok(())
 }
