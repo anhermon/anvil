@@ -125,6 +125,20 @@ anvil memory search "recent goals"
 anvil config --check
 ```
 
+### Instruction Discovery and Precedence
+
+Anvil supports Claude-style instruction overlays via `CLAUDE.md` files.
+
+Load order (low → high precedence):
+
+1. User instructions: `~/.claude/CLAUDE.md`
+2. Project hierarchy: `CLAUDE.md` from project root down to current working directory
+3. Local overrides in each directory: `CLAUDE.local.md` (loaded after `CLAUDE.md` in the same directory)
+
+Conflicts resolve deterministically: later entries in that order override earlier entries.
+
+Scoped behavior is lazy: subdirectory `CLAUDE.md` / `CLAUDE.local.md` files are loaded only when a tool call touches paths in those directories (for example `read_file path=src/main.rs`).
+
 ---
 
 ## Providers

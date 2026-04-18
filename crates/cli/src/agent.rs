@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::instructions::ScopedInstructionSet;
 use futures::future::BoxFuture;
 use harness_core::{
     config::Config,
@@ -19,6 +20,21 @@ use tracing::{debug, info, warn};
 
 /// Maximum sub-agent nesting depth to prevent infinite recursion.
 const MAX_SUBAGENT_DEPTH: usize = 4;
+
+fn extract_path_hints(input: &serde_json::Value) -> Vec<&str> {
+    let Some(obj) = input.as_object() else {
+        return Vec::new();
+    };
+
+    let keys = ["path", "file", "filepath", "directory", "dir", "cwd"];
+    let mut paths = Vec::new();
+    for key in keys {
+        if let Some(value) = obj.get(key).and_then(serde_json::Value::as_str) {
+            paths.push(value);
+        }
+    }
+    paths
+}
 
 /// Callback interface for terminal UI events emitted by the agent loop.
 ///
@@ -147,8 +163,14 @@ impl Agent {
             .unwrap_or("You are a helpful assistant. Complete the user's goal concisely.")
             .to_string();
 
+        let mut scoped_instructions = ScopedInstructionSet::for_current_dir();
+        if let Err(e) = scoped_instructions.load_startup() {
+            warn!("failed to load scoped instruction files: {e}");
+        }
+        let mut effective_base_system = scoped_instructions.apply_to_base_system(&base_system);
+
         let system_with_memory = self
-            .build_system_prompt_with_memory(&base_system, goal)
+            .build_system_prompt_with_memory(&effective_base_system, goal)
             .await;
 
         let mut messages: Vec<Message> = Vec::new();
@@ -307,6 +329,32 @@ impl Agent {
                             tool_use_id,
                             content: output.content,
                         });
+
+                        let mut loaded_new_scoped_files = false;
+                        for path_hint in extract_path_hints(&input) {
+                            match scoped_instructions.load_for_touched_path(path_hint) {
+                                Ok(changed) => {
+                                    loaded_new_scoped_files |= changed;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        tool = %name,
+                                        path_hint = %path_hint,
+                                        "failed loading scoped instructions: {e}"
+                                    );
+                                }
+                            }
+                        }
+                        if loaded_new_scoped_files {
+                            effective_base_system =
+                                scoped_instructions.apply_to_base_system(&base_system);
+                            let refreshed_system = self
+                                .build_system_prompt_with_memory(&effective_base_system, goal)
+                                .await;
+                            if let Some(system_msg) = messages.first_mut() {
+                                *system_msg = Message::system(refreshed_system);
+                            }
+                        }
                     }
 
                     // Feed results back as a user-role message and continue.
