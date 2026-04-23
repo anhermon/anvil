@@ -1,12 +1,93 @@
 #!/usr/bin/env bash
-MSG=$(cat "$1")
+# commit-msg hook - Validates commit message format and required rationale fields
+
+MSG_FILE="$1"
+MSG=$(cat "$MSG_FILE")
+
+# Color codes
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+# 1. Validate Conventional Commits format
 PATTERN="^(feat|fix|docs|style|refactor|test|chore|ci|perf|revert)(\(.+\))?: .+"
 
 if ! echo "$MSG" | grep -qE "$PATTERN"; then
-  echo "❌ Commit message does not follow Conventional Commits format"
+  echo -e "${RED}❌ Commit message does not follow Conventional Commits format${NC}"
   echo "   Expected: <type>(<scope>): <description>"
   echo "   Example: feat(core): add streaming support"
   echo "   Types: feat, fix, docs, style, refactor, test, chore, ci, perf, revert"
   exit 1
 fi
-echo "✅ Commit message format OK"
+
+# 2. Extract commit type and scope
+COMMIT_TYPE=$(echo "$MSG" | head -n1 | sed -E 's/^([a-z]+)(\(.+\))?: .*/\1/')
+COMMIT_SCOPE=$(echo "$MSG" | head -n1 | sed -E 's/^[a-z]+\(([^)]+)\): .*/\1/')
+
+# 3. Check if rationale is required for this commit type
+# Rationale is required for: feat, fix, refactor, chore (when touching governance/workflow)
+REQUIRES_RATIONALE=false
+
+case "$COMMIT_TYPE" in
+  feat|fix|refactor)
+    # Always require rationale for features, fixes, and refactors
+    REQUIRES_RATIONALE=true
+    ;;
+  chore|docs)
+    # Require rationale for workflow/governance changes
+    if echo "$COMMIT_SCOPE" | grep -qE "(workflow|governance|agents|paperclip|platform)"; then
+      REQUIRES_RATIONALE=true
+    fi
+    ;;
+esac
+
+# 4. Validate rationale fields if required
+if [ "$REQUIRES_RATIONALE" = true ]; then
+  # Check for rationale section in commit body
+  # Expected format:
+  #   Rationale: <explanation>
+  # OR
+  #   Why: <explanation>
+
+  if echo "$MSG" | grep -qiE "^(Rationale|Why):" ; then
+    # Rationale found - extract and validate it's not empty
+    RATIONALE=$(echo "$MSG" | grep -iE "^(Rationale|Why):" | sed -E 's/^(Rationale|Why):[[:space:]]*//')
+
+    if [ -z "$RATIONALE" ] || [ ${#RATIONALE} -lt 10 ]; then
+      echo -e "${RED}❌ Rationale field is too short (minimum 10 characters)${NC}"
+      echo "   Provide a meaningful explanation for this change"
+      exit 1
+    fi
+
+    echo -e "${GREEN}✅ Commit message format and rationale OK${NC}"
+    exit 0
+  else
+    echo -e "${RED}❌ Rationale required for $COMMIT_TYPE commits${NC}"
+    echo ""
+    echo "   Add a rationale section to your commit message:"
+    echo "   "
+    echo "   Rationale: Explain why this change is needed, what problem it solves,"
+    echo "   and how it fits into the broader workflow evolution."
+    echo ""
+    echo "   Example:"
+    echo "   ─────────────────────────────────────────────────────────────"
+    echo "   feat(platform): add commit-cadence enforcement"
+    echo "   "
+    echo "   Implements guardrails to prevent long-lived uncommitted changes"
+    echo "   beyond 24h threshold."
+    echo "   "
+    echo "   Rationale: Frequent commits enable reliable branching, rollback,"
+    echo "   and traceable organizational evolution. This addresses the gap"
+    echo "   identified in ANGA-652 where workflow changes accumulated without"
+    echo "   version control, making rollback and auditing difficult."
+    echo "   ─────────────────────────────────────────────────────────────"
+    echo ""
+    echo "   To skip rationale check (not recommended): use type 'style' or 'test'"
+    exit 1
+  fi
+else
+  # Rationale not required - just validate format
+  echo -e "${GREEN}✅ Commit message format OK${NC}"
+  exit 0
+fi
