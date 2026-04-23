@@ -3,6 +3,13 @@ set -e
 
 echo "🔍 Running pre-commit checks..."
 
+# Commit cadence check - ensure no long-lived uncommitted changes
+# This can be bypassed with: COMMIT_CADENCE_THRESHOLD_HOURS=999 git commit
+echo "  → Checking commit cadence"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+"$REPO_ROOT/scripts/check-commit-cadence.sh"
+
 # Format check
 echo "  → cargo fmt --check"
 cargo fmt --all -- --check

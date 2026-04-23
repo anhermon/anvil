@@ -1,0 +1,75 @@
+# <type>(<scope>): <short description>
+#
+# [Optional longer description explaining WHAT changed]
+#
+# Rationale: [WHY this change is needed - explain the problem it solves
+# and how it fits into the broader workflow evolution]
+#
+# Co-Authored-By: Paperclip <noreply@paperclip.ing>
+#
+# ─────────────────────────────────────────────────────────────────────
+# Commit Message Guidelines
+# ─────────────────────────────────────────────────────────────────────
+#
+# Types:
+#   feat:     New feature
+#   fix:      Bug fix
+#   docs:     Documentation only
+#   style:    Formatting, missing semicolons, etc (no code change)
+#   refactor: Code change that neither fixes a bug nor adds a feature
+#   test:     Adding or updating tests
+#   chore:    Maintenance tasks (deps, CI, tooling)
+#   ci:       CI/CD configuration changes
+#   perf:     Performance improvements
+#   revert:   Revert a previous commit
+#
+# Scopes (examples):
+#   core, tools, memory, cli, evolution, github, paperclip, deps, brand,
+#   workflow, governance, agents, platform
+#
+# Rationale Requirements:
+#   - REQUIRED for: feat, fix, refactor (all scopes)
+#   - REQUIRED for: chore, docs (when scope is workflow/governance/agents/paperclip/platform)
+#   - OPTIONAL for: style, test, ci
+#
+#   Rationale should explain:
+#   - WHY this change is needed
+#   - What problem it solves
+#   - How it fits into the broader workflow/organizational evolution
+#   - Any trade-offs or alternatives considered
+#
+# Examples:
+#
+#   feat(platform): add commit-cadence enforcement guardrail
+#
+#   Implements a pre-commit check that blocks commits when uncommitted
+#   changes exceed 24h threshold.
+#
+#   Rationale: Frequent commits enable reliable branching, rollback, and
+#   traceable organizational evolution. This addresses the gap identified
+#   in ANGA-652 where workflow changes accumulated without version control,
+#   making rollback and auditing difficult.
+#
+#   Co-Authored-By: Paperclip <noreply@paperclip.ing>
+#
+# ─────────────────────────────────────────────────────────────────────
+#
+#   fix(memory): prevent FTS5 corruption on concurrent writes
+#
+#   Adds SQLite WAL mode and IMMEDIATE transaction for episode inserts.
+#
+#   Rationale: Production agents experienced episodic memory corruption
+#   when multiple runs wrote simultaneously. WAL mode allows concurrent
+#   reads during writes, and IMMEDIATE prevents write-write conflicts.
+#   Alternative (serialized queue) would add latency to turn completion.
+#
+#   Co-Authored-By: Paperclip <noreply@paperclip.ing>
+#
+# ─────────────────────────────────────────────────────────────────────
+#
+# Remember:
+#   - First line: max 72 characters
+#   - Rationale: minimum 10 characters for meaningful explanation
+#   - Agent commits must include Co-Authored-By trailer
+#   - Commit frequently (at least every 24h for active work)
+#
