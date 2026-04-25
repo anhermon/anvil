@@ -239,6 +239,13 @@ impl Agent {
         loop {
             if session.iteration >= max_iter {
                 info!("max iterations reached");
+                let last_text = session
+                    .messages
+                    .last()
+                    .and_then(|m| m.text())
+                    .unwrap_or("");
+                self.hook
+                    .on_result(last_text, false, &session.id.to_string());
                 session.finish(SessionStatus::Done);
                 break;
             }
@@ -331,6 +338,13 @@ impl Agent {
                         }
                         _ => {
                             warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
+                            let last_text = session
+                                .messages
+                                .last()
+                                .and_then(|m| m.text())
+                                .unwrap_or("");
+                            self.hook
+                                .on_result(last_text, false, &session.id.to_string());
                             session.finish(SessionStatus::Done);
                             break;
                         }
@@ -348,15 +362,7 @@ impl Agent {
                         info!(tool = %name, depth = self.depth, "calling tool");
 
                         // Notify hooks with both compact preview (terminal) and full data (JSON).
-                        let input_preview = input
-                            .as_object()
-                            .and_then(|m| m.values().next())
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .chars()
-                            .take(60)
-                            .collect::<String>();
-                        self.hook.on_tool_call(&name, &input_preview);
+                        // Only call on_tool_call_full; it will delegate to on_tool_call if needed
                         self.hook.on_tool_call_full(&name, &tool_use_id, &input);
 
                         let mut output = if name == "spawn_subagent" {
@@ -405,8 +411,12 @@ impl Agent {
                         if output.is_error {
                             warn!(tool = %name, "tool returned error: {}", output.content);
                         }
-                        self.hook.on_tool_result(&output.content);
-                        self.hook.on_tool_result_full(&tool_use_id, &output.content, output.is_error);
+                        // Only call on_tool_result_full; it will delegate to on_tool_result if needed
+                        self.hook.on_tool_result_full(
+                            &tool_use_id,
+                            &output.content,
+                            output.is_error,
+                        );
                         result_blocks.push(ContentBlock::ToolResult {
                             tool_use_id,
                             content: output.content,
