@@ -239,11 +239,7 @@ impl Agent {
         loop {
             if session.iteration >= max_iter {
                 info!("max iterations reached");
-                let last_text = session
-                    .messages
-                    .last()
-                    .and_then(|m| m.text())
-                    .unwrap_or("");
+                let last_text = session.messages.last().and_then(|m| m.text()).unwrap_or("");
                 self.hook
                     .on_result(last_text, false, &session.id.to_string());
                 session.finish(SessionStatus::Done);
@@ -338,11 +334,8 @@ impl Agent {
                         }
                         _ => {
                             warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
-                            let last_text = session
-                                .messages
-                                .last()
-                                .and_then(|m| m.text())
-                                .unwrap_or("");
+                            let last_text =
+                                session.messages.last().and_then(|m| m.text()).unwrap_or("");
                             self.hook
                                 .on_result(last_text, false, &session.id.to_string());
                             session.finish(SessionStatus::Done);
