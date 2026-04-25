@@ -386,10 +386,19 @@ impl Agent {
                                 len = output.content.len(),
                                 "truncating large tool output"
                             );
+                            // Find the last UTF-8 character boundary before 10000 bytes
+                            let truncate_at = output
+                                .content
+                                .char_indices()
+                                .take_while(|(idx, _)| *idx < 10000)
+                                .last()
+                                .map(|(idx, ch)| idx + ch.len_utf8())
+                                .unwrap_or(0);
+                            let truncated_chars = output.content[truncate_at..].chars().count();
                             output.content = format!(
                                 "{}... [TRUNCATED {} characters]",
-                                &output.content[..10000],
-                                output.content.len() - 10000
+                                &output.content[..truncate_at],
+                                truncated_chars
                             );
                         }
 

@@ -108,6 +108,15 @@ impl ToolHandler for GrepTool {
         };
         let recursive = input["recursive"].as_bool().unwrap_or(false);
 
+        // Security: validate path to prevent accessing arbitrary host files
+        let p = std::path::Path::new(&path);
+        if p.is_absolute() || path.starts_with('/') {
+            return ToolOutput::err("absolute paths are not allowed");
+        }
+        if p.components().any(|c| c == std::path::Component::ParentDir) {
+            return ToolOutput::err("path traversal (..) is not allowed");
+        }
+
         let mut cmd = std::process::Command::new("grep");
         cmd.arg("-n"); // line numbers
         if recursive {
