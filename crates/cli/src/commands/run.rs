@@ -112,7 +112,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     let provider: Arc<dyn Provider> = match backend.as_str() {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
-            Arc::new(harness_core::provider::EchoProvider)
+            Arc::new(harness_core::provider::EchoProvider::new())
         }
         "claude-code" | "cc" => {
             let model = &config.provider.model;

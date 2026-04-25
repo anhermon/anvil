@@ -118,10 +118,15 @@ export PAPERCLIP_API_KEY=...
 export PAPERCLIP_API_URL=http://localhost:3100
 anvil paperclip --agent-id <your-agent-id> --company-id <company-id>
 
+# Dogfood artifact freshness check (use before sharing target/debug binaries)
+cargo build -p harness-cli
+./target/debug/anvil --help | grep paperclip
+./target/debug/anvil paperclip --help
+
 # Search episodic memory
 anvil memory search "recent goals"
 
-# Check your config
+# Check config + native build prerequisites (cc, pkg-config, openssl)
 anvil config --check
 ```
 
@@ -216,6 +221,40 @@ This harness is informed by studying the best open-source agent frameworks:
 
 ---
 
+## Development Philosophy
+
+**Purpose:** Anvil is a testing and evaluation infrastructure harness — the forge where agent capabilities are built, measured, and proven.
+
+### Evolution Workflow
+
+Anvil evolves through usage, not roadmaps:
+
+1. **Use** — Run Anvil in real agent workflows. Observe what works and what breaks.
+2. **Journal** — Record friction, failures, and surprises as structured feedback.
+3. **Derive** — Convert feedback into concrete issues with measurable acceptance criteria.
+4. **Branch** — Implement on feature branches. One concern per branch.
+5. **Benchmark** — CI runs the benchmark suite on every PR. Scores are emitted as `benchmark-results.json` in a standard format.
+6. **Merge** — Only merge when benchmarks confirm the change improves (or at minimum does not regress) the overall score.
+
+### Branch Model
+
+Anvil uses long-lived branches with benchmark-driven pruning:
+
+1. **Develop parallel branches** — Multiple approaches to the same problem can coexist.
+2. **Evaluate and compare** — The same benchmark suite runs on each branch for side-by-side comparison.
+3. **Pick winner / drop loser** — Higher benchmark score wins. The losing branch is cancelled.
+4. **Release candidate** — The winner is promoted to an RC for final validation.
+5. **Merge to main** — Only after RC passes all gates.
+
+### Benchmark-Driven Merge Decisions
+
+- PRs that regress the overall score below threshold are blocked.
+- When competing branches solve the same problem, CI compares their scores and recommends the winner.
+- Post-merge regressions trigger revert recommendations.
+- Benchmark history is tracked via CI artifacts for trend analysis.
+
+---
+
 ## Contributing
 
 ### Who this is for
@@ -248,6 +287,39 @@ cargo fmt --check
 # Security audit
 cargo audit
 ```
+
+### Testing with the echo provider
+
+The `EchoProvider` enables full end-to-end testing without any LLM API key or credits:
+
+```bash
+# Run the agent loop with the echo provider (mirrors input back)
+anvil run --provider echo --goal "test task"
+
+# Run the full integration test suite (uses echo provider, no API key needed)
+cargo test -p harness-cli --test echo_integration
+```
+
+**Scripted tool calls:** For tests that need deterministic tool-call behaviour,
+use `EchoProvider::scripted()` to queue tool calls that are emitted in order
+before falling back to the normal echo response:
+
+```rust
+use harness_core::provider::{EchoProvider, ScriptedToolCall};
+
+let provider = EchoProvider::scripted(vec![
+    ScriptedToolCall {
+        id: "call-1".to_string(),
+        name: "echo".to_string(),
+        input: serde_json::json!({"message": "ping"}),
+    },
+]);
+// First provider call returns ToolUse; subsequent calls echo normally.
+```
+
+Integration tests live in `crates/cli/tests/echo_integration.rs` and cover:
+plain echo, scripted tool dispatch, max-iteration caps, memory persistence,
+and named-session continuity.
 
 ### Commit style
 

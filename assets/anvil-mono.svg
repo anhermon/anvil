@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!--
+    anvil-mono.svg — monochrome anvil, transparent background.
+    Uses currentColor so it inherits the surrounding text/fill color.
+    Safe for use on any background (dark or light).
+  -->
+  <path fill-rule="evenodd" fill="currentColor" d="
+    M 38,80 L 162,80 L 162,96
+    C 157,96 152,104 148,116
+    L 146,132 L 158,148 L 164,170
+    L 114,170 L 110,150 L 90,150
+    L 86,170 L 36,170 L 42,148
+    L 54,132 L 52,116
+    C 48,104 43,96 38,96 Z
+    M 90,150 C 94,159 100,164 100,170
+    C 100,164 106,159 110,150 Z
+  "/>
+  <path d="M 8,88 Q 22,80 38,80 L 38,96 Q 22,98 8,88 Z" fill="currentColor"/>
+  <rect x="52" y="70" width="110" height="10" rx="2" fill="currentColor"/>
+</svg>
