@@ -13,7 +13,7 @@ use axum::{
     routing::get,
     Router,
 };
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::TcpListener,
     sync::{broadcast, mpsc},
@@ -103,6 +103,12 @@ pub struct GatewayHandle {
     pub addr: SocketAddr,
 }
 
+/// Cloneable event-only handle for background emitters.
+#[derive(Clone)]
+pub struct GatewayEventHandle {
+    event_tx: broadcast::Sender<AgentEvent>,
+}
+
 impl GatewayHandle {
     /// Broadcast an event to all connected WebSocket clients.
     ///
@@ -114,12 +120,63 @@ impl GatewayHandle {
         }
     }
 
+    /// Return the number of WebSocket clients currently subscribed to events.
+    #[must_use]
+    pub fn connected_clients(&self) -> usize {
+        self.event_tx.receiver_count()
+    }
+
+    /// Create a cloneable event-only handle.
+    #[must_use]
+    pub fn clone_event_handle(&self) -> GatewayEventHandle {
+        GatewayEventHandle {
+            event_tx: self.event_tx.clone(),
+        }
+    }
+
     /// Gracefully shut down the gateway server.
     pub async fn shutdown(mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
         let _ = self.server_task.await;
+    }
+
+    /// Gracefully shut down the gateway server, aborting it if it exceeds `timeout`.
+    ///
+    /// Returns `true` when graceful shutdown completes before the timeout and `false`
+    /// when the server task had to be aborted.
+    pub async fn shutdown_with_timeout(mut self, timeout: Duration) -> bool {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+
+        match tokio::time::timeout(timeout, &mut self.server_task).await {
+            Ok(_) => true,
+            Err(_) => {
+                self.server_task.abort();
+                let _ = self.server_task.await;
+                false
+            }
+        }
+    }
+}
+
+impl GatewayEventHandle {
+    /// Broadcast an event to all connected WebSocket clients.
+    ///
+    /// If no clients are connected the event is silently dropped.
+    pub async fn emit(&self, event: AgentEvent) {
+        match self.event_tx.send(event) {
+            Ok(n) => debug!("event broadcast to {n} clients"),
+            Err(_) => debug!("no clients connected; event dropped"),
+        }
+    }
+
+    /// Return the number of WebSocket clients currently subscribed to events.
+    #[must_use]
+    pub fn connected_clients(&self) -> usize {
+        self.event_tx.receiver_count()
     }
 }
 
@@ -266,6 +323,78 @@ mod tests {
             panic!("unexpected message type");
         }
 
+        ws.close(None).await.ok();
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_connected_clients_tracks_websocket_subscribers() {
+        use tokio_tungstenite::connect_async;
+
+        let handle = start_test_gateway().await;
+        let ws_url = format!("ws://{}/ws", handle.addr);
+
+        assert_eq!(handle.connected_clients(), 0);
+        let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
+
+        for _ in 0..20 {
+            if handle.connected_clients() == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        assert_eq!(handle.connected_clients(), 1);
+
+        ws.close(None).await.ok();
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_timeout_returns_with_active_websocket() {
+        use tokio_tungstenite::connect_async;
+
+        let handle = start_test_gateway().await;
+        let ws_url = format!("ws://{}/ws", handle.addr);
+        let (_ws, _) = connect_async(&ws_url).await.expect("ws connect");
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle.shutdown_with_timeout(std::time::Duration::from_millis(10)),
+        )
+        .await;
+
+        assert!(result.is_ok(), "shutdown timeout should prevent hangs");
+    }
+
+    #[tokio::test]
+    async fn test_event_handle_can_emit_after_first_subscriber_connects() {
+        use futures::StreamExt;
+        use tokio_tungstenite::connect_async;
+
+        let handle = start_test_gateway().await;
+        let event_handle = handle.clone_event_handle();
+        let ws_url = format!("ws://{}/ws", handle.addr);
+
+        let hello_task = tokio::spawn(async move {
+            while event_handle.connected_clients() == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            event_handle.emit(AgentEvent::token("online")).await;
+        });
+
+        let (mut ws, _) = connect_async(&ws_url).await.expect("ws connect");
+
+        let msg = ws.next().await.expect("no msg").expect("ws err");
+        if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+            let ev: serde_json::Value = serde_json::from_str(&text).expect("json");
+            assert_eq!(ev["kind"], "token");
+            assert_eq!(ev["delta"], "online");
+        } else {
+            panic!("expected text message");
+        }
+
+        hello_task.await.expect("hello task panicked");
         ws.close(None).await.ok();
         handle.shutdown().await;
     }
