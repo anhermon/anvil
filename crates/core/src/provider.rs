@@ -59,6 +59,17 @@ pub trait Provider: Send + Sync + 'static {
         Ok(Box::pin(stream::once(async move { Ok(chunk) })))
     }
 
+    /// Streaming turn with tool definitions made available to the LLM.
+    /// Default falls back to `stream` (tools ignored) for providers that don't
+    /// support tool calling in streaming mode yet.
+    async fn stream_with_tools(
+        &self,
+        messages: &[Message],
+        _tools: &[ToolDef],
+    ) -> Result<TokenStream> {
+        self.stream(messages).await
+    }
+
     /// Maximum context window in tokens (informational).
     fn context_limit(&self) -> usize {
         200_000

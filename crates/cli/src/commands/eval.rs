@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use clap::Args;
-use harness_core::{config::Config, provider::Provider, providers::ClaudeProvider};
+use harness_core::{
+    config::Config,
+    provider::Provider,
+    providers::{ClaudeProvider, OllamaProvider},
+};
 use harness_memory::MemoryDb;
 use serde::Deserialize;
 
@@ -64,6 +68,20 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
         "echo" => {
             tracing::info!("using echo provider (no LLM calls)");
             Arc::new(harness_core::provider::EchoProvider)
+        }
+        "ollama" => {
+            let model = &config.provider.model;
+            let base_url = config
+                .provider
+                .base_url
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
+            tracing::info!(model = %model, base_url = %base_url, "using OllamaProvider");
+            Arc::new(OllamaProvider::new(
+                base_url,
+                model,
+                config.provider.max_tokens,
+            ))
         }
         _ => {
             let api_key = config.resolved_api_key().ok_or_else(|| {

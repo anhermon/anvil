@@ -65,6 +65,82 @@ impl ToolHandler for SpawnSubagentTool {
     }
 }
 
+/// Search for a pattern in a file or directory using the `grep` command.
+pub struct GrepTool;
+
+#[async_trait]
+impl ToolHandler for GrepTool {
+    fn schema(&self) -> ToolSchema {
+        ToolSchema {
+            name: "grep".into(),
+            description: "Search for a pattern in a file or directory. \
+                Returns matching lines with line numbers."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "The regex pattern to search for"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "The file or directory to search in"
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Whether to search recursively (default: false)"
+                    }
+                },
+                "required": ["pattern", "path"]
+            }),
+        }
+    }
+
+    async fn call(&self, input: Value) -> ToolOutput {
+        let pattern = match input["pattern"].as_str() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => return ToolOutput::err("pattern is required"),
+        };
+        let path = match input["path"].as_str() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => return ToolOutput::err("path is required"),
+        };
+        let recursive = input["recursive"].as_bool().unwrap_or(false);
+
+        // Security: validate path to prevent accessing arbitrary host files
+        let p = std::path::Path::new(&path);
+        if p.is_absolute() || path.starts_with('/') {
+            return ToolOutput::err("absolute paths are not allowed");
+        }
+        if p.components().any(|c| c == std::path::Component::ParentDir) {
+            return ToolOutput::err("path traversal (..) is not allowed");
+        }
+
+        let mut cmd = std::process::Command::new("grep");
+        cmd.arg("-n"); // line numbers
+        if recursive {
+            cmd.arg("-r");
+        }
+        cmd.arg(&pattern).arg(&path);
+
+        match cmd.output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                if out.status.success() {
+                    ToolOutput::ok(stdout.to_string())
+                } else if out.status.code() == Some(1) {
+                    ToolOutput::ok("(no matches found)".to_string())
+                } else {
+                    ToolOutput::err(format!("grep failed: {stderr}"))
+                }
+            }
+            Err(e) => ToolOutput::err(format!("failed to execute grep: {e}")),
+        }
+    }
+}
+
 /// Read the UTF-8 contents of a file at a given path.
 ///
 /// # Security
@@ -192,7 +268,8 @@ impl ToolHandler for ReadFileTool {
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
-    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which",
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep", "bash",
+    "curl", "jq",
 ];
 
 fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
@@ -224,13 +301,38 @@ action: retry with workspace-local paths or allowed commands, or request a broad
     ))
 }
 
+fn is_env_assignment_token(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let Some((name, _value)) = token.split_once('=') else {
+        return false;
+    };
+    if name.is_empty() {
+        return false;
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+}
+
+fn first_command_token(command: &str) -> &str {
+    command
+        .split_whitespace()
+        .find(|token| !is_env_assignment_token(token))
+        .unwrap_or("")
+}
+
 #[async_trait]
 impl ToolHandler for BashExecTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
-            name: "bash_exec".into(),
+            name: "bash".into(),
             description: "Execute a shell command and return stdout+stderr. \
-                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which. \
+                Only allowlisted commands are permitted: cargo, rustfmt, rustc, git, ls, cat, echo, pwd, env, which, grep, bash, curl, jq. \
                 Timeout: 30 seconds."
                 .into(),
             input_schema: serde_json::json!({
@@ -253,8 +355,8 @@ impl ToolHandler for BashExecTool {
         };
         let command_for_error = command.clone();
 
-        // Allowlist check: only permit commands whose first token is in ALLOWED_COMMANDS
-        let first_token = command.split_whitespace().next().unwrap_or("");
+        // Allowlist check: permit leading VAR=VALUE assignments and validate the first command token.
+        let first_token = first_command_token(&command);
         if !ALLOWED_COMMANDS.contains(&first_token) {
             return ToolOutput::err(format!(
                 "Command not allowed: only [{}] are permitted",
@@ -495,6 +597,34 @@ mod tests {
         let tool = BashExecTool;
         let out = tool.call(json!({})).await;
         assert!(out.is_error);
+    }
+
+    #[tokio::test]
+    async fn bash_exec_allows_leading_env_assignments() {
+        let tool = BashExecTool;
+        let out = tool
+            .call(json!({"command": "ISSUE_ID=abc VERIFICATION=ok bash -lc 'echo $ISSUE_ID'"}))
+            .await;
+        assert!(!out.is_error, "unexpected error: {}", out.content);
+        assert!(
+            out.content.contains("abc"),
+            "expected ISSUE_ID value in output: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_exec_rejects_non_allowlisted_command_after_env_assignments() {
+        let tool = BashExecTool;
+        let out = tool
+            .call(json!({"command": "FOO=bar python -c 'print(1)'"}))
+            .await;
+        assert!(out.is_error, "expected non-allowlisted command to fail");
+        assert!(
+            out.content.contains("not allowed"),
+            "expected not allowed error: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
