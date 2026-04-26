@@ -344,11 +344,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         }
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
-        eprintln!(
-            "  session {} | status {:?}",
-            session.id,
-            session.status,
-        );
+        eprintln!("  session {} | status {:?}", session.id, session.status,);
     }
 
     Ok(())
