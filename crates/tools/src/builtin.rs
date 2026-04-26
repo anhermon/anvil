@@ -230,7 +230,7 @@ fn reset_safe_edit_state_for_tests() {
 #[async_trait]
 impl ToolHandler for ReadFileTool {
     fn schema(&self) -> ToolSchema {
-        ToolSchema::simple("read", "Read the UTF-8 contents of a file", &["path"])
+        ToolSchema::simple("read_file", "Read the UTF-8 contents of a file", &["path"])
     }
 
     async fn call(&self, input: Value) -> ToolOutput {
@@ -411,7 +411,7 @@ pub struct WriteFileTool;
 impl ToolHandler for WriteFileTool {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
-            name: "write".into(),
+            name: "write_file".into(),
             description: "Write content to a file at the given relative path. \
                 Creates parent directories as needed. \
                 Rejects absolute paths and \'..\' traversal."
