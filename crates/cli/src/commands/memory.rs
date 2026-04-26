@@ -17,9 +17,9 @@ enum MemoryCommands {
         #[arg(short, long, default_value = "10")]
         limit: i64,
     },
-    /// Show recent episodes for a session
+    /// Show recent episodes for a session (accepts UUID or session name from --session)
     Recent {
-        session_id: Uuid,
+        session: String,
         #[arg(short, long, default_value = "20")]
         limit: i64,
     },
@@ -44,8 +44,16 @@ pub async fn execute(args: MemoryArgs) -> anyhow::Result<()> {
                 );
             }
         }
-        MemoryCommands::Recent { session_id, limit } => {
-            let results = memory.recent(session_id, limit).await?;
+        MemoryCommands::Recent { session, limit } => {
+            // Accept either a full UUID or a human-readable session name.
+            let results = if let Ok(uuid) = Uuid::parse_str(&session) {
+                memory.recent(uuid, limit).await?
+            } else {
+                memory.recent_by_name(&session, limit).await?
+            };
+            if results.is_empty() {
+                println!("No episodes found for session: {session}");
+            }
             for ep in results {
                 println!(
                     "[{}] {}: {}",

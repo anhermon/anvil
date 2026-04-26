@@ -166,6 +166,7 @@ impl Provider for ClaudeCodeProvider {
                 &prompt,
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--model",
                 &self.model,
                 "--no-session-persistence",
