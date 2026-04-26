@@ -283,11 +283,7 @@ impl Agent {
                     }
 
                     // Persist final assistant turn to memory.
-                    let ep = harness_memory::Episode::turn(
-                        session.id,
-                        "assistant",
-                        &final_text,
-                    );
+                    let ep = harness_memory::Episode::turn(session.id, "assistant", &final_text);
                     let sn = opts.session_name.as_deref();
                     self.memory.insert_named(&ep, sn).await?;
 
@@ -296,7 +292,8 @@ impl Agent {
                     self.memory.insert_named(&goal_ep, sn).await?;
 
                     // Notify hook that the session is complete.
-                    self.hook.on_result(&final_text, false, &session.id.to_string());
+                    self.hook
+                        .on_result(&final_text, false, &session.id.to_string());
 
                     session.finish(SessionStatus::Done);
                     break;
@@ -305,10 +302,10 @@ impl Agent {
                 StopReason::ToolUse => {
                     // Extract every ToolUse block from the assistant response.
                     // Also emit any text blocks that appear alongside tool calls.
-                    let (tool_calls, text_blocks): (Vec<(String, String, serde_json::Value)>, Vec<String>) = match &response
-                        .message
-                        .content
-                    {
+                    let (tool_calls, text_blocks): (
+                        Vec<(String, String, serde_json::Value)>,
+                        Vec<String>,
+                    ) = match &response.message.content {
                         MessageContent::Blocks(blocks) => {
                             let tools = blocks
                                 .iter()
@@ -324,7 +321,11 @@ impl Agent {
                                 .iter()
                                 .filter_map(|b| {
                                     if let ContentBlock::Text { text } = b {
-                                        if !text.is_empty() { Some(text.clone()) } else { None }
+                                        if !text.is_empty() {
+                                            Some(text.clone())
+                                        } else {
+                                            None
+                                        }
                                     } else {
                                         None
                                     }

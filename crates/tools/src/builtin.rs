@@ -268,8 +268,8 @@ impl ToolHandler for ReadFileTool {
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
-    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep",
-    "bash", "curl", "jq",
+    "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep", "bash",
+    "curl", "jq",
 ];
 
 fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
