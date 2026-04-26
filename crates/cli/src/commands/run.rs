@@ -52,6 +52,22 @@ pub struct RunArgs {
     /// Use this flag when calling `anvil run` from a machine-readable context (e.g. Paperclip adapter).
     #[arg(long)]
     pub json_output: bool,
+
+    /// Allow the cc/claude-code provider subprocess to perform file writes.
+    ///
+    /// When using `--provider cc`, the subprocess runs the `claude` CLI which by
+    /// default requires interactive approval before writing files.  In a
+    /// non-interactive context there is no way to grant that approval, so writes
+    /// are silently blocked with a confusing "requires approval" message.
+    ///
+    /// This flag passes `--dangerously-skip-permissions` to the subprocess,
+    /// bypassing the interactive guard and allowing file modifications without
+    /// prompting.  Only set this when you trust the goal and understand the files
+    /// that may be created or modified.
+    ///
+    /// Silently ignored for providers other than `cc`/`claude-code`.
+    #[arg(long)]
+    pub allow_writes: bool,
 }
 
 // ── Terminal (coloured) hook ──────────────────────────────────────────────────
@@ -242,8 +258,8 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             Arc::new(harness_core::provider::EchoProvider)
         }
         "claude-code" | "cc" => {
-            tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
-            Arc::new(ClaudeCodeProvider::new(&model))
+            tracing::info!(model = %model, allow_writes = %args.allow_writes, "using ClaudeCodeProvider (subprocess)");
+            Arc::new(ClaudeCodeProvider::new(&model).with_allow_writes(args.allow_writes))
         }
         "ollama" => {
             let base_url = config

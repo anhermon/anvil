@@ -15,13 +15,26 @@ use crate::{
 /// more restricted direct-API OAuth pool. The binary must be available on PATH.
 pub struct ClaudeCodeProvider {
     model: String,
+    /// When `true`, pass `--dangerously-skip-permissions` to the subprocess so
+    /// that file-write operations are not blocked by the claude CLI permission
+    /// guard.  Only set this when the caller has explicitly opted in via
+    /// `--allow-writes` (or equivalent).
+    allow_writes: bool,
 }
 
 impl ClaudeCodeProvider {
     pub fn new(model: impl Into<String>) -> Self {
         Self {
             model: model.into(),
+            allow_writes: false,
         }
+    }
+
+    /// Enable file-write operations by passing `--dangerously-skip-permissions`
+    /// to the claude subprocess.
+    pub fn with_allow_writes(mut self, allow_writes: bool) -> Self {
+        self.allow_writes = allow_writes;
+        self
     }
 
     pub fn default_model() -> Self {
@@ -64,26 +77,28 @@ impl ClaudeCodeProvider {
     ///
     /// Returns the text extracted from the `result` field of the JSON response.
     async fn run_subprocess(&self, prompt: &str) -> Result<String> {
-        debug!(model = %self.model, "spawning claude subprocess");
+        debug!(model = %self.model, allow_writes = %self.allow_writes, "spawning claude subprocess");
 
-        let output = Command::new("claude")
-            .args([
-                "-p",
-                prompt,
-                "--output-format",
-                "json",
-                "--model",
-                &self.model,
-                "--no-session-persistence",
-            ])
-            .output()
-            .await
-            .map_err(|e| {
-                HarnessError::Provider(format!(
-                    "failed to spawn claude binary: {e}. \
-                     Ensure the `claude` CLI is installed and available on PATH."
-                ))
-            })?;
+        let mut cmd = Command::new("claude");
+        cmd.args([
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
+            "--model",
+            &self.model,
+            "--no-session-persistence",
+        ]);
+        if self.allow_writes {
+            cmd.arg("--dangerously-skip-permissions");
+        }
+
+        let output = cmd.output().await.map_err(|e| {
+            HarnessError::Provider(format!(
+                "failed to spawn claude binary: {e}. \
+                 Ensure the `claude` CLI is installed and available on PATH."
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -113,6 +128,20 @@ impl ClaudeCodeProvider {
                 ))
             })?
             .to_string();
+
+        // If the response contains a permission-denial pattern, surface a hard
+        // error with a clear remediation step rather than silently returning the
+        // confusing "requires approval" message with no next step.
+        if !self.allow_writes && is_permission_denial(&text) {
+            return Err(HarnessError::Provider(
+                "The claude CLI blocked a write operation — interactive permission approval \
+                 is not available in subprocess mode.\n\n\
+                 To enable file writes, re-run with the --allow-writes flag:\n\n  \
+                 anvil run --allow-writes --goal \"...\"\n\n\
+                 This passes --dangerously-skip-permissions to the claude subprocess."
+                    .to_string(),
+            ));
+        }
 
         Ok(text)
     }
@@ -158,18 +187,23 @@ impl Provider for ClaudeCodeProvider {
     async fn stream(&self, messages: &[Message]) -> Result<TokenStream> {
         let prompt = Self::build_prompt(messages);
 
-        debug!(model = %self.model, "spawning claude subprocess (stream-json)");
+        debug!(model = %self.model, allow_writes = %self.allow_writes, "spawning claude subprocess (stream-json)");
 
-        let output = Command::new("claude")
-            .args([
-                "-p",
-                &prompt,
-                "--output-format",
-                "stream-json",
-                "--model",
-                &self.model,
-                "--no-session-persistence",
-            ])
+        let mut cmd = Command::new("claude");
+        cmd.args([
+            "-p",
+            &prompt,
+            "--output-format",
+            "stream-json",
+            "--model",
+            &self.model,
+            "--no-session-persistence",
+        ]);
+        if self.allow_writes {
+            cmd.arg("--dangerously-skip-permissions");
+        }
+
+        let output = cmd
             .output()
             .await
             .map_err(|e| HarnessError::Provider(format!("failed to spawn claude binary: {e}")))?;
@@ -222,6 +256,26 @@ impl Provider for ClaudeCodeProvider {
             }
         }
 
+        // If the accumulated text looks like a permission denial, return an error
+        // instead of streaming the confusing "requires approval" message.
+        if !self.allow_writes {
+            let accumulated: String = chunks
+                .iter()
+                .filter_map(|c| c.as_ref().ok())
+                .map(|c| c.delta.as_str())
+                .collect();
+            if is_permission_denial(&accumulated) {
+                return Err(HarnessError::Provider(
+                    "The claude CLI blocked a write operation — interactive permission \
+                     approval is not available in subprocess mode.\n\n\
+                     To enable file writes, re-run with the --allow-writes flag:\n\n  \
+                     anvil run --allow-writes --goal \"...\"\n\n\
+                     This passes --dangerously-skip-permissions to the claude subprocess."
+                        .to_string(),
+                ));
+            }
+        }
+
         chunks.push(Ok(StreamChunk {
             delta: String::new(),
             done: true,
@@ -229,6 +283,20 @@ impl Provider for ClaudeCodeProvider {
 
         Ok(Box::pin(stream::iter(chunks)))
     }
+}
+
+/// Return `true` when the response text looks like a permission-denial message
+/// emitted by the claude CLI's interactive permission guard.
+///
+/// These messages are soft responses (subprocess exits 0) but have no
+/// actionable next step for the user when running in non-interactive mode.
+fn is_permission_denial(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Match phrases the claude CLI typically produces when write permission is blocked.
+    lower.contains("requires your permission")
+        || lower.contains("permission approval")
+        || lower.contains("requires approval to")
+        || lower.contains("needs your permission")
 }
 
 /// Extract displayable text from a stream-json event value.
@@ -283,5 +351,69 @@ mod tests {
     fn extract_stream_text_ignores_non_text_events() {
         let v = serde_json::json!({"type": "message_start", "message": {}});
         assert_eq!(extract_stream_text(&v), None);
+    }
+
+    // -- is_permission_denial tests -------------------------------------------
+
+    #[test]
+    fn permission_denial_detects_requires_your_permission() {
+        assert!(is_permission_denial(
+            "I've attempted to create the file. The operation requires your permission \
+             approval to proceed."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_detects_permission_approval() {
+        assert!(is_permission_denial(
+            "This action requires permission approval before it can continue."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_detects_requires_approval_to() {
+        assert!(is_permission_denial(
+            "The write tool requires approval to execute on this system."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_detects_needs_your_permission() {
+        assert!(is_permission_denial(
+            "Writing to /tmp/test.txt needs your permission."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_is_case_insensitive() {
+        assert!(is_permission_denial(
+            "THIS OPERATION REQUIRES YOUR PERMISSION APPROVAL."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_does_not_match_normal_response() {
+        assert!(!is_permission_denial(
+            "I have created the file /tmp/test.txt with the content 'hello'."
+        ));
+    }
+
+    #[test]
+    fn permission_denial_does_not_match_empty_string() {
+        assert!(!is_permission_denial(""));
+    }
+
+    // -- with_allow_writes builder test ---------------------------------------
+
+    #[test]
+    fn with_allow_writes_sets_flag() {
+        let p = ClaudeCodeProvider::new("claude-sonnet-4-5").with_allow_writes(true);
+        assert!(p.allow_writes);
+    }
+
+    #[test]
+    fn new_defaults_allow_writes_false() {
+        let p = ClaudeCodeProvider::new("claude-sonnet-4-5");
+        assert!(!p.allow_writes);
     }
 }
