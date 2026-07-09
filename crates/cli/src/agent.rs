@@ -193,7 +193,17 @@ impl Agent {
                  - read_skill(name) — loads full skill content and increments usage counter\n\
                  - save_skill(name, description, content) — creates or updates a skill\n\
                  - refine_skill(name, feedback) — appends refinement notes to an existing skill\n\n\
-                 Be concise and direct."
+                 Be concise and direct.\n\n\
+                 ## Before you finish\n\n\
+                 Before producing your final answer (ending your turn without a tool call), check:\n\
+                 1. Does my answer address every part of the stated goal, not just the first step? \
+                 If the goal asks for a comparison, ranking, or derived fact (e.g. \"which is largest\", \
+                 \"how many\", \"what changed\"), you must have actually run a tool that computes that \
+                 fact — do not guess or infer it from a partial listing.\n\
+                 2. Is every specific fact in my answer — file names, numbers, paths — copied verbatim \
+                 from the most recent tool output, not recalled from memory or paraphrased? If you are not \
+                 quoting a tool result directly, re-check it against the raw output before writing it down.\n\
+                 If either check fails, call another tool instead of ending your turn."
             )
             .to_string();
 
