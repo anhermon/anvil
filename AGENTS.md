@@ -27,11 +27,14 @@ crates/
 ├── core/       Provider trait, Message types, Config, Session, turn loop primitives
 ├── tools/      ToolRegistry, ToolHandler trait, JSON Schema validation, built-in tools
 ├── memory/     SQLite + FTS5 episodic memory (MemoryDb), Episode types
-├── cli/        clap CLI binary: Agent loop, subcommands (run, config, memory)
-├── evolution/  Phantom-pattern 5-gate self-evolution engine
-├── github/     GitHub @mention webhook support
-└── paperclip/  Paperclip control-plane client + heartbeat loop adapter
+├── cli/        clap CLI binary: Agent loop, subcommands (run, config, memory, eval, auth)
+├── evolution/  Phantom-pattern 5-gate self-evolution engine  [not wired into the binary]
+├── github/     GitHub API client + @mention webhook server   [not wired into the binary]
+└── paperclip/  Paperclip control-plane client + heartbeat    [not wired into the binary]
 ```
+
+The last three crates build as workspace members but nothing in `anvil` depends on them.
+`evolution` is additionally behind the `evolution` cargo feature, off by default.
 
 Planned crates (do not add without a tracking issue): `task`, `orchestrator`, `ui`.
 
@@ -202,13 +205,15 @@ summarizing what was done. The CTO will review and merge.
 
 ## Roadmap context
 
-The project has completed through **Phase 6**:
-- Phases 1–3: core runtime, tool calls, streaming, eval harness (stable)
-- Phase 5: self-evolution engine (`harness-evolution` crate)
-- Phase 6: Paperclip control-plane adapter (`harness-paperclip` crate) + GitHub webhooks (`harness-github`)
+Shipping in the `anvil` binary on `main`:
+- Core runtime, tool-call loop, streaming, `anvil eval`
+- Sub-agent orchestration (`spawn_subagent`, `MAX_SUBAGENT_DEPTH = 4`)
+- Skill library tools (`list_skills`, `read_skill`, `save_skill`, `refine_skill`)
 
-Phase 4 (sub-agent orchestration) is deferred. Planned crates (`task`, `orchestrator`, `ui`) must
-not be added without a tracking issue.
+Built but not reachable from the binary: `harness-evolution` (feature-gated; see issue #65),
+`harness-paperclip`, `harness-github`. A WebSocket gateway and a ratatui TUI exist on `dev` only.
+
+Planned crates (`task`, `orchestrator`, `ui`) must not be added without a tracking issue.
 
 ---
 
