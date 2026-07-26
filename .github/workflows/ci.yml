@@ -60,8 +60,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        # +stable overrides rust-toolchain.toml (1.86); cargo-audit needs 1.88+
+        run: cargo +stable install cargo-audit --locked
       - name: Audit dependencies
         # RUSTSEC-2023-0071: rsa timing sidechannel — pulled in via sqlx-mysql
         # which we do not use (SQLite-only). No upstream fix available.
