@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["paperclip-harness contributors"]
 license = "MIT OR Apache-2.0"
-rust-version = "1.75"
+rust-version = "1.86"
 
 [workspace.dependencies]
 # Async runtime

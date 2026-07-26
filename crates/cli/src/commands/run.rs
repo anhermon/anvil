@@ -19,7 +19,7 @@ pub struct RunArgs {
     #[arg(short, long)]
     pub goal: String,
 
-    /// Provider backend override (claude, claude-code, cc, echo)
+    /// Provider backend override (claude, claude-code, cc, ollama, echo)
     #[arg(long, env = "HARNESS_PROVIDER")]
     pub provider: Option<String>,
 

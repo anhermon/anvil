@@ -29,7 +29,7 @@ pub struct EvalArgs {
     #[arg(short, long)]
     pub cases: String,
 
-    /// Provider backend (claude, echo). Defaults to config value.
+    /// Provider backend (claude, ollama, echo). Defaults to config value.
     #[arg(long, env = "HARNESS_PROVIDER")]
     pub provider: Option<String>,
 
