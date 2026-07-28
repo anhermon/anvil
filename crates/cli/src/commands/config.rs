@@ -8,6 +8,8 @@ pub struct ConfigArgs {
     pub check: bool,
 }
 
+// Kept async for a uniform signature across command handlers.
+#[allow(clippy::unused_async)]
 pub async fn execute(args: ConfigArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     println!("Provider:   {}", config.provider.backend);

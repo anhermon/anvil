@@ -59,6 +59,7 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -95,14 +96,17 @@ impl ToolRegistry {
     }
 
     /// List all registered tool schemas (for passing to the LLM).
+    #[must_use]
     pub fn schemas(&self) -> Vec<ToolSchema> {
         self.handlers.iter().map(|e| e.value().schema()).collect()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.handlers.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.handlers.is_empty()
     }

@@ -26,6 +26,10 @@ impl AuthMethod {
     /// Resolve the best available auth method.
     ///
     /// Order: subscription credentials file -> `ANTHROPIC_API_KEY` env var -> error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the credentials file exists but cannot be read or parsed, or if no credentials file and no `ANTHROPIC_API_KEY` are available.
     pub fn resolve() -> anyhow::Result<Self> {
         // Step 1 -- try the Claude credentials file.
         if let Some(result) = Self::try_credentials_file()? {
@@ -57,6 +61,7 @@ impl AuthMethod {
     }
 
     /// Human-readable one-line description (used by `anvil auth status`).
+    #[must_use]
     pub fn describe(&self) -> String {
         match self {
             Self::ApiKey(_) => "API key (from ANTHROPIC_API_KEY env var)".to_string(),

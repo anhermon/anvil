@@ -14,6 +14,7 @@ pub struct PaperclipClient {
 }
 
 impl PaperclipClient {
+    #[must_use]
     pub fn new(api_url: String, api_key: String, company_id: String) -> Self {
         Self {
             client: Client::new(),
@@ -24,6 +25,10 @@ impl PaperclipClient {
     }
 
     /// Create a Paperclip issue assigned to the given agent, carrying GitHub context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn create_mention_task(
         &self,
         agent_id: &str,
@@ -97,7 +102,7 @@ impl PaperclipClient {
             .context("failed to parse Paperclip API response")?;
 
         if !status.is_success() {
-            anyhow::bail!("Paperclip API returned {}: {}", status, body);
+            anyhow::bail!("Paperclip API returned {status}: {body}");
         }
 
         let issue_id = body["identifier"].as_str().unwrap_or("unknown").to_string();

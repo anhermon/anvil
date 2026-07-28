@@ -10,7 +10,11 @@ pub struct MemoryDb {
 }
 
 impl MemoryDb {
-    /// Open (or create) a SQLite database at `path` and run migrations.
+    /// Open (or create) a `SQLite` database at `path` and run migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parent directory cannot be created, the database cannot be opened, or migrations fail.
     pub async fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -28,6 +32,10 @@ impl MemoryDb {
     }
 
     /// In-memory database for tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the in-memory database cannot be opened or migrations fail.
     pub async fn in_memory() -> Result<Self> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -41,7 +49,7 @@ impl MemoryDb {
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS episodes (
+            r"CREATE TABLE IF NOT EXISTS episodes (
                 id          TEXT PRIMARY KEY NOT NULL,
                 session_id  TEXT NOT NULL,
                 kind        TEXT NOT NULL,
@@ -49,7 +57,7 @@ impl MemoryDb {
                 content     TEXT NOT NULL,
                 metadata    TEXT,
                 created_at  TEXT NOT NULL
-            )"#,
+            )",
         )
         .execute(pool)
         .await?;
@@ -74,45 +82,45 @@ impl MemoryDb {
         .await?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS evolution_log (
+            r"CREATE TABLE IF NOT EXISTS evolution_log (
                 id             TEXT PRIMARY KEY NOT NULL,
                 session_id     TEXT NOT NULL,
                 prompt_score   REAL NOT NULL,
                 outcome_kind   TEXT NOT NULL,
                 outcome_detail TEXT NOT NULL,
                 created_at     TEXT NOT NULL
-            )"#,
+            )",
         )
         .execute(pool)
         .await?;
 
         sqlx::query(
-            r#"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+            r"CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
                 id UNINDEXED,
                 content,
                 content='episodes',
                 content_rowid='rowid'
-            )"#,
+            )",
         )
         .execute(pool)
         .await?;
 
         sqlx::query(
-            r#"CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
+            r"CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
                 INSERT INTO episodes_fts(rowid, id, content) VALUES (new.rowid, new.id, new.content);
-            END"#,
+            END",
         )
         .execute(pool)
         .await?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS sessions (
+            r"CREATE TABLE IF NOT EXISTS sessions (
                 id          TEXT PRIMARY KEY NOT NULL,
                 goal        TEXT NOT NULL,
                 status      TEXT NOT NULL DEFAULT 'running',
                 started_at  TEXT NOT NULL,
                 finished_at TEXT
-            )"#,
+            )",
         )
         .execute(pool)
         .await?;
@@ -145,11 +153,19 @@ impl MemoryDb {
     }
 
     /// Insert a new episode (no named session tag).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the insert query fails.
     pub async fn insert(&self, ep: &Episode) -> Result<()> {
         self.insert_named(ep, None).await
     }
 
     /// Insert a new episode, optionally tagged with a named session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the insert query fails.
     pub async fn insert_named(&self, ep: &Episode, session_name: Option<&str>) -> Result<()> {
         let kind = match ep.kind {
             EpisodeKind::Turn => "turn",
@@ -157,11 +173,11 @@ impl MemoryDb {
             EpisodeKind::Fact => "fact",
             EpisodeKind::Summary => "summary",
         };
-        let metadata = ep.metadata.as_ref().map(|m| m.to_string());
+        let metadata = ep.metadata.as_ref().map(std::string::ToString::to_string);
 
         sqlx::query(
-            r#"INSERT INTO episodes (id, session_id, kind, role, content, metadata, created_at, session_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            r"INSERT INTO episodes (id, session_id, kind, role, content, metadata, created_at, session_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(ep.id.to_string())
         .bind(ep.session_id.to_string())
@@ -178,11 +194,15 @@ impl MemoryDb {
     }
 
     /// Retrieve recent episodes for a session UUID, newest-first, limited to `limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails or a row cannot be decoded.
     pub async fn recent(&self, session_id: Uuid, limit: i64) -> Result<Vec<Episode>> {
         let rows = sqlx::query(
-            r#"SELECT id, session_id, kind, role, content, metadata, created_at
+            r"SELECT id, session_id, kind, role, content, metadata, created_at
                FROM episodes WHERE session_id = ?
-               ORDER BY created_at DESC LIMIT ?"#,
+               ORDER BY created_at DESC LIMIT ?",
         )
         .bind(session_id.to_string())
         .bind(limit)
@@ -194,11 +214,15 @@ impl MemoryDb {
 
     /// Retrieve recent episodes for a named session, oldest-first (chronological
     /// order so they can be replayed as conversation history), limited to `limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails or a row cannot be decoded.
     pub async fn recent_by_name(&self, session_name: &str, limit: i64) -> Result<Vec<Episode>> {
         let rows = sqlx::query(
-            r#"SELECT id, session_id, kind, role, content, metadata, created_at
+            r"SELECT id, session_id, kind, role, content, metadata, created_at
                FROM episodes WHERE session_name = ?
-               ORDER BY created_at ASC LIMIT ?"#,
+               ORDER BY created_at ASC LIMIT ?",
         )
         .bind(session_name)
         .bind(limit)
@@ -219,6 +243,10 @@ impl MemoryDb {
     /// trailing period in `"features."` produces `fts5: syntax error near "."`).
     /// Only alphanumeric characters and underscores survive; empty terms after
     /// sanitization are dropped. If no valid terms remain, returns an empty vec.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the FTS5 query fails or a row cannot be decoded.
     pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<Episode>> {
         // Strip FTS5-incompatible characters from each whitespace-delimited token.
         let fts_query = query
@@ -237,11 +265,11 @@ impl MemoryDb {
         }
 
         let rows = sqlx::query(
-            r#"SELECT e.id, e.session_id, e.kind, e.role, e.content, e.metadata, e.created_at
+            r"SELECT e.id, e.session_id, e.kind, e.role, e.content, e.metadata, e.created_at
                FROM episodes_fts fts
                JOIN episodes e ON e.id = fts.id
                WHERE episodes_fts MATCH ?
-               ORDER BY rank LIMIT ?"#,
+               ORDER BY rank LIMIT ?",
         )
         .bind(fts_query)
         .bind(limit)
@@ -251,6 +279,7 @@ impl MemoryDb {
         rows.iter().map(parse_row).collect()
     }
 
+    #[must_use]
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
@@ -279,8 +308,7 @@ fn parse_row(row: &sqlx::sqlite::SqliteRow) -> Result<Episode> {
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok()),
         created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .map(|dt| dt.with_timezone(&chrono::Utc))
-            .unwrap_or_else(|_| chrono::Utc::now()),
+            .map_or_else(|_| chrono::Utc::now(), |dt| dt.with_timezone(&chrono::Utc)),
     })
 }
 
@@ -325,7 +353,7 @@ mod tests {
         for i in 0..3u32 {
             let mut ep = crate::Episode::turn(session_id, "user", format!("message {i}"));
             // Stagger timestamps so ordering is deterministic.
-            ep.created_at = chrono::Utc::now() + chrono::Duration::milliseconds(i as i64 * 10);
+            ep.created_at = chrono::Utc::now() + chrono::Duration::milliseconds(i64::from(i) * 10);
             db.insert_named(&ep, Some("ordered-session")).await.unwrap();
         }
 

@@ -3,7 +3,7 @@ name = "harness-evolution"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Phantom-pattern 5-gate self-evolution engine for paperclip-harness"
+description = "5-stage self-evolution pipeline with minority-veto validation for anvil"
 
 [dependencies]
 harness-core    = { workspace = true }
@@ -22,3 +22,6 @@ sqlx            = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile   = "3"
+
+[lints]
+workspace = true

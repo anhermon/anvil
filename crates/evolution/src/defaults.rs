@@ -171,6 +171,7 @@ pub struct DefaultValidator {
 }
 
 impl DefaultValidator {
+    #[must_use]
     pub const fn new(perspective: &'static str) -> Self {
         Self { perspective }
     }
@@ -232,6 +233,7 @@ impl Applier for DefaultApplier {
 
 /// Construct a fully-wired [`crate::engine::EvolutionEngine`] with all-default
 /// stages and the provided memory store.
+#[must_use]
 pub fn default_engine(memory: Arc<MemoryDb>) -> crate::engine::EvolutionEngine {
     use std::sync::Arc;
     crate::engine::EvolutionEngine {

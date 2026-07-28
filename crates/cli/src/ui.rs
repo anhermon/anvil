@@ -148,7 +148,7 @@ pub fn print_response(text: &str) {
 ///
 /// `tokens_in` and `tokens_out` are best-effort; pass 0 when unavailable.
 pub fn print_session_summary(tokens_in: u32, tokens_out: u32, iterations: usize, elapsed_ms: u64) {
-    let secs = elapsed_ms as f64 / 1000.0;
+    let secs = std::time::Duration::from_millis(elapsed_ms).as_secs_f64();
     let token_str = if tokens_in > 0 || tokens_out > 0 {
         format!("tokens {tokens_in}/{tokens_out}  ·  ")
     } else {

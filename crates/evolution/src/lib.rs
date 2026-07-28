@@ -18,6 +18,8 @@
 //! let outcome = engine.evolve(&session, &current_prompt).await?;
 //! ```
 
+// Test code intentionally uses unwrap/expect/panic: a failed assertion should abort the test.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod defaults;
 pub mod engine;
 pub mod traits;

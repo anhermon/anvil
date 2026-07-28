@@ -4,7 +4,7 @@
 //! 1. Identity check
 //! 2. (approval follow-up — delegated to executor)
 //! 3. Get inbox
-//! 4. Pick work (in_progress first, then todo)
+//! 4. Pick work (`in_progress` first, then todo)
 //! 5. Checkout
 //! 6. Get context
 //! 7. Execute (delegated to [`TaskExecutor`])
@@ -65,6 +65,7 @@ pub struct HeartbeatConfig {
 }
 
 impl HeartbeatConfig {
+    #[must_use]
     pub fn new(agent_id: String, company_id: String) -> Self {
         Self {
             agent_id,
@@ -95,6 +96,10 @@ impl HeartbeatLoop {
     }
 
     /// Run one heartbeat cycle.  Returns the number of tasks processed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Paperclip API cannot be reached or returns an unexpected response.
     pub async fn run_once(&self) -> Result<usize> {
         // Step 1: agent_id is already in config — no round-trip needed just for logging.
         info!(
@@ -201,7 +206,7 @@ impl HeartbeatLoop {
         Ok(true)
     }
 
-    /// Sort inbox items: in_progress first, then todo by priority.
+    /// Sort inbox items: `in_progress` first, then todo by priority.
     /// Skip blocked items (they require explicit new context).
     fn prioritise(inbox: &[InboxItem]) -> Vec<&InboxItem> {
         let mut in_progress: Vec<&InboxItem> = inbox
@@ -279,9 +284,9 @@ mod tests {
         assert!(ordered.is_empty());
     }
 
-    /// Verify that process_task posts a comment and returns Ok(true) when the
+    /// Verify that `process_task` posts a comment and returns `Ok(true)` when the
     /// executor returns an error.  Uses a minimal in-process HTTP server to
-    /// capture the add_comment request.
+    /// capture the `add_comment` request.
     #[tokio::test]
     async fn process_task_posts_comment_on_executor_error() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -300,9 +305,8 @@ mod tests {
         // canned JSON response (good enough for this unit test).
         tokio::spawn(async move {
             loop {
-                let (mut stream, _) = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(_) => break,
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
                 };
                 let mut buf = vec![0u8; 4096];
                 let n = stream.read(&mut buf).await.unwrap_or(0);

@@ -28,9 +28,8 @@ pub fn verify(secret: &str, body: &[u8], signature_header: &str) -> Result<(), S
 
     let expected = hex::decode(hex_sig).map_err(|_| SignatureError::InvalidFormat)?;
 
-    // HMAC<Sha256> accepts any key length; the only error case is zero-length key
-    // which cannot happen here because &str references are non-null (even if empty,
-    // HMAC still accepts it). We use `unwrap_or` with a compile-time known-safe path.
+    // HMAC<Sha256> accepts any key length, so this is effectively infallible;
+    // it is still mapped to an error rather than unwrapped.
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| SignatureError::InvalidFormat)?;
     mac.update(body);
@@ -62,7 +61,7 @@ mod tests {
         let result = verify("secret", b"body", "sha256=deadbeef");
         assert!(matches!(
             result,
-            Err(SignatureError::InvalidFormat) | Err(SignatureError::Mismatch)
+            Err(SignatureError::InvalidFormat | SignatureError::Mismatch)
         ));
     }
 

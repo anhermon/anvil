@@ -153,7 +153,7 @@ A WebSocket control-plane crate (`gateway/`) and a ratatui TUI exist on the `dev
 ```bash
 cargo build --workspace
 cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 ```
 

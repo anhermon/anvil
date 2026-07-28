@@ -48,7 +48,7 @@ pub struct InboxItem {
     pub active_run: Option<ActiveRun>,
 }
 
-/// Minimal active-run info embedded in an InboxItem.
+/// Minimal active-run info embedded in an `InboxItem`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveRun {

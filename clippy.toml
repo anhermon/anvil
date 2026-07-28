@@ -1,0 +1,2 @@
+# Keep clippy suggestions within the declared MSRV (Cargo.toml `rust-version`).
+msrv = "1.86"

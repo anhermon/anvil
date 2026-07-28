@@ -46,6 +46,7 @@ pub enum ValidationVote {
 }
 
 impl ValidationVote {
+    #[must_use]
     pub fn is_reject(&self) -> bool {
         matches!(self, Self::Reject { .. })
     }
@@ -77,6 +78,7 @@ pub struct EvolutionRecord {
 }
 
 impl EvolutionRecord {
+    #[must_use]
     pub fn from_outcome(session_id: Uuid, score: f64, outcome: &EvolutionOutcome) -> Self {
         let (kind, detail) = match outcome {
             EvolutionOutcome::Applied {
