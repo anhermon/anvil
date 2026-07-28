@@ -32,6 +32,8 @@ struct Cli {
 enum Commands {
     /// Run an agent turn toward a goal
     Run(commands::run::RunArgs),
+    /// Start an interactive multi-turn chat session
+    Chat(commands::chat::ChatArgs),
     /// Show current configuration
     Config(commands::config::ConfigArgs),
     /// Manage and inspect memory
@@ -55,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Run(args) => commands::run::execute(args).await,
+        Commands::Chat(args) => commands::chat::execute(args).await,
         Commands::Config(args) => commands::config::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
         Commands::Eval(args) => commands::eval::execute(args).await,

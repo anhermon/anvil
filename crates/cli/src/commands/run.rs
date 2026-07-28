@@ -1,25 +1,14 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use clap::Args;
-use harness_core::{
-    config::Config,
-    provider::Provider,
-    providers::ollama::DEFAULT_OLLAMA_TIMEOUT_SECS,
-    providers::{ClaudeCodeProvider, ClaudeProvider, OllamaProvider},
-};
+use harness_core::config::Config;
 use harness_memory::MemoryDb;
 use indicatif::ProgressBar;
 
 use crate::agent::{Agent, RunOptions, UiHook};
+use crate::commands::provider;
 use crate::ui;
-
-fn parse_positive_timeout(value: &str) -> Result<u64, String> {
-    match value.parse::<u64>() {
-        Ok(seconds) if seconds > 0 => Ok(seconds),
-        _ => Err("timeout must be a positive number of seconds".to_string()),
-    }
-}
 
 #[derive(Args)]
 pub struct RunArgs {
@@ -27,22 +16,8 @@ pub struct RunArgs {
     #[arg(short, long)]
     pub goal: String,
 
-    /// Provider backend override (claude, claude-code, cc, ollama, echo)
-    #[arg(long, env = "HARNESS_PROVIDER")]
-    pub provider: Option<String>,
-
-    /// Model identifier override (e.g. "gemma4:e2b")
-    #[arg(long, env = "HARNESS_MODEL")]
-    pub model: Option<String>,
-
-    /// Maximum seconds to wait for each Ollama request
-    #[arg(
-        long,
-        env = "ANVIL_OLLAMA_TIMEOUT_SECS",
-        default_value_t = DEFAULT_OLLAMA_TIMEOUT_SECS,
-        value_parser = parse_positive_timeout
-    )]
-    pub ollama_timeout_secs: u64,
+    #[command(flatten)]
+    provider: provider::ProviderArgs,
 
     /// Stream response tokens to stdout as they arrive
     #[arg(long)]
@@ -74,12 +49,12 @@ pub struct RunArgs {
 // ── Terminal (coloured) hook ──────────────────────────────────────────────────
 
 /// CLI UI hook: drives the spinner and prints tool call/result lines.
-struct CliHook {
+pub(crate) struct CliHook {
     spinner: std::sync::Mutex<Option<ProgressBar>>,
 }
 
 impl CliHook {
-    fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             spinner: std::sync::Mutex::new(None),
         })
@@ -248,64 +223,10 @@ impl UiHook for JsonHook {
 #[allow(clippy::too_many_lines)]
 pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
-
-    let backend_override = args.provider.as_deref();
-    let mut backend = args
-        .provider
-        .as_deref()
-        .unwrap_or(&config.provider.backend)
-        .to_string();
-    let model = args
-        .model
-        .as_deref()
-        .unwrap_or(&config.provider.model)
-        .to_string();
-
-    // Auto-detect ollama when no provider is explicitly specified and the model
-    // doesn't look like a known Claude or OpenAI model.
-    if backend_override.is_none()
-        && !model.starts_with("claude")
-        && !model.starts_with("anthropic/")
-        && !model.starts_with("gpt-")
-        && !model.starts_with("openai/")
-    {
-        tracing::info!(model = %model, "auto-detecting ollama provider from model name");
-        backend = "ollama".to_string();
-    }
-
-    let provider: Arc<dyn Provider> = match backend.as_str() {
-        "echo" => {
-            tracing::info!("using echo provider (no LLM calls)");
-            Arc::new(harness_core::provider::EchoProvider)
-        }
-        "claude-code" | "cc" => {
-            tracing::info!(model = %model, "using ClaudeCodeProvider (subprocess)");
-            Arc::new(ClaudeCodeProvider::new(&model))
-        }
-        "ollama" => {
-            let base_url = config
-                .provider
-                .base_url
-                .as_deref()
-                .unwrap_or("http://localhost:11434");
-            tracing::info!(
-                model = %model,
-                base_url = %base_url,
-                timeout_secs = args.ollama_timeout_secs,
-                "using OllamaProvider"
-            );
-            Arc::new(OllamaProvider::with_timeout(
-                base_url,
-                &model,
-                config.provider.max_tokens,
-                Duration::from_secs(args.ollama_timeout_secs),
-            ))
-        }
-        _ => Arc::new(
-            ClaudeProvider::from_env(&model, config.provider.max_tokens)
-                .map_err(|e| anyhow::anyhow!("{e}"))?,
-        ),
-    };
+    let resolved = provider::resolve(&config, &args.provider)?;
+    let backend = resolved.backend;
+    let model = resolved.model;
+    let provider = resolved.provider;
 
     let memory = Arc::new(MemoryDb::open(&config.memory.db_path).await?);
 
@@ -391,16 +312,4 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_positive_timeout;
-
-    #[test]
-    fn ollama_timeout_must_be_positive() {
-        assert_eq!(parse_positive_timeout("45"), Ok(45));
-        assert!(parse_positive_timeout("0").is_err());
-        assert!(parse_positive_timeout("not-a-number").is_err());
-    }
 }
