@@ -1,6 +1,7 @@
 # Anvil
 
-> A Rust-native agent harness. One binary, pluggable LLM providers, sub-agents, a skill library and persistent episodic memory.
+> A coding agent that runs **fully offline as a single binary** — no Node, no Python, no API key.
+> Tool-calling loop, sub-agents, a skill library and persistent memory, all against a local Ollama model.
 
 **Status:** v0.1.0, pre-release. Builds and tests clean on `main`; the CLI surface below is what actually ships.
 
@@ -17,6 +18,17 @@ Anvil is a single-binary agent harness:
 1. `anvil run --goal "..."` starts an agent turn loop against your configured LLM provider.
 2. The agent calls tools (bash, file read/write, grep), can spawn sub-agents up to a depth of 4, and can read, save and refine Markdown skills in `~/.anvil/skills/`.
 3. Every turn is written to a SQLite episodic memory you can search from the CLI.
+
+### Why pick it over Claude Code, Codex or aider?
+
+Only for the things those tools structurally can't do:
+
+- **It runs with no network and no account.** One static binary plus Ollama. Air-gapped machines, and zero marginal cost per run.
+- **No language runtime to install.** `cargo install` once; there is no `node_modules`, no venv.
+- **It is a library, not just a CLI.** The agent loop, tool registry and memory store are ordinary Rust crates you can embed in your own program.
+- **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result.
+
+Where it does **not** compete: interactive day-to-day coding. Against a frontier model those tools are far faster and far more capable. On a local 9.6 GB model a single edit-build-fix task here takes roughly 3 minutes.
 
 ---
 
@@ -43,6 +55,17 @@ ollama pull qwen2.5:3b-instruct
 
 anvil run --provider ollama --model qwen2.5:3b-instruct --goal "Say hello in exactly three words."
 ```
+
+### Choosing a local model
+
+Tool-calling ability matters far more than speed here.
+
+| Task | Works on a 3B model? |
+|------|----------------------|
+| Read files, grep, answer a question about a codebase | Yes |
+| Edit a file, run a build, fix the error, re-run | **No** — small models tend to *describe* the edit and end the turn without calling `write_file` |
+
+For anything that edits files, use a larger tool-calling model (`gemma4`, `qwen3.6:27b-q4_K_M` or similar). Pick with `--model`.
 
 No LLM at all? The `echo` provider mirrors input back and is what the test suite uses:
 
@@ -109,6 +132,15 @@ anvil auth status
 
 Episodes are stored in `~/.paperclip/harness/memory.db` (SQLite + FTS5), alongside config at `~/.paperclip/harness/config.toml`.
 
+There are **two** ways past episodes reach the model, and only the first is opt-in:
+
+1. **Named sessions.** `--session <name>` replays that session's prior episodes as real conversation turns, up to `memory.max_context_episodes` (default 20).
+2. **Global recall — always on.** Every run, with or without `--session`, full-text-searches *all* episodes for the goal text and prepends up to 5 matches (200 chars each) to the system prompt.
+
+Because of (2), `--session` is **not** an isolation boundary: a run under one session name can recall facts recorded under another. Everything written to the database is visible to every later run by the same user. Don't put anything in a goal you wouldn't want recalled in an unrelated project.
+
+Both paths are per-user, not per-directory — there is no way to point Anvil at a different database short of changing `$HOME`.
+
 ---
 
 ## Architecture
@@ -124,6 +156,12 @@ crates/
 ```
 
 Tools registered in the shipped binary: `echo`, `read_file`, `write_file`, `grep`, `bash`, `spawn_subagent`, `list_skills`, `read_skill`, `save_skill`, `refine_skill`.
+
+Limits worth knowing before you hit them:
+
+- **`bash` commands time out after 30 seconds** and are restricted to an allowlist (`cargo`, `git`, `ls`, `cat`, `grep`, `curl`, `jq`, …). A cold `cargo build` on a non-trivial project will exceed this.
+- **`write_file` requires a prior `read_file`** of that path in the same session, and refuses to write if the file changed since that read. Creating a new file is exempt.
+- **Paths are relative only** — absolute paths and `..` are rejected. Anvil operates on the current working directory.
 
 ### Crates not wired into the binary
 
