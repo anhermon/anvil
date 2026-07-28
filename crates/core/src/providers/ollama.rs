@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::Client;
@@ -15,18 +17,54 @@ pub struct OllamaProvider {
     model: String,
     base_url: String,
     max_tokens: u32,
+    request_timeout: Duration,
+}
+
+pub const DEFAULT_OLLAMA_TIMEOUT_SECS: u64 = 60;
+
+fn timeout_label(timeout: Duration) -> String {
+    if timeout.as_secs() > 0 {
+        format!("{}s", timeout.as_secs())
+    } else {
+        format!("{}ms", timeout.as_millis())
+    }
+}
+
+fn ollama_request_error(error: &reqwest::Error, timeout: Duration, endpoint: &str) -> HarnessError {
+    if error.is_timeout() {
+        HarnessError::Provider(format!(
+            "Ollama request to {endpoint} timed out after {}. \
+             The model may still be loading; retry, choose a smaller model, or increase \
+             --ollama-timeout-secs (ANVIL_OLLAMA_TIMEOUT_SECS).",
+            timeout_label(timeout)
+        ))
+    } else {
+        HarnessError::Provider(error.to_string())
+    }
 }
 
 impl OllamaProvider {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>, max_tokens: u32) -> Self {
+        Self::with_timeout(
+            base_url,
+            model,
+            max_tokens,
+            Duration::from_secs(DEFAULT_OLLAMA_TIMEOUT_SECS),
+        )
+    }
+
+    pub fn with_timeout(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        request_timeout: Duration,
+    ) -> Self {
         Self {
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: Client::new(),
             base_url: base_url.into(),
             model: model.into(),
             max_tokens,
+            request_timeout,
         }
     }
 
@@ -35,6 +73,10 @@ impl OllamaProvider {
             "{}/v1/chat/completions",
             self.base_url.trim_end_matches('/')
         )
+    }
+
+    fn request(&self, endpoint: &str) -> reqwest::RequestBuilder {
+        self.client.post(endpoint).timeout(self.request_timeout)
     }
 
     fn build_openai_messages(messages: &[Message]) -> Vec<OpenAiMessage> {
@@ -269,29 +311,32 @@ impl Provider for OllamaProvider {
             },
         };
 
-        debug!(model = %self.model, url = %self.endpoint(), "sending request to Ollama (OpenAI-compatible)");
+        let endpoint = self.endpoint();
+        debug!(model = %self.model, url = %endpoint, "sending request to Ollama (OpenAI-compatible)");
 
         let resp = self
-            .client
-            .post(self.endpoint())
+            .request(&endpoint)
             .json(&body)
             .send()
             .await
-            .map_err(|e| HarnessError::Provider(e.to_string()))?;
+            .map_err(|error| {
+                ollama_request_error(&error, self.request_timeout, endpoint.as_str())
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
-            let raw = resp.text().await.unwrap_or_default();
+            let raw = resp.text().await.map_err(|error| {
+                ollama_request_error(&error, self.request_timeout, endpoint.as_str())
+            })?;
             return Err(HarnessError::Api {
                 status: status.as_u16(),
                 body: raw,
             });
         }
 
-        let api_resp: OpenAiResponse = resp
-            .json()
-            .await
-            .map_err(|e| HarnessError::Provider(e.to_string()))?;
+        let api_resp: OpenAiResponse = resp.json().await.map_err(|error| {
+            ollama_request_error(&error, self.request_timeout, endpoint.as_str())
+        })?;
 
         let choice = api_resp
             .choices
@@ -390,17 +435,21 @@ impl Provider for OllamaProvider {
             },
         };
 
+        let endpoint = self.endpoint();
         let resp = self
-            .client
-            .post(self.endpoint())
+            .request(&endpoint)
             .json(&body)
             .send()
             .await
-            .map_err(|e| HarnessError::Provider(e.to_string()))?;
+            .map_err(|error| {
+                ollama_request_error(&error, self.request_timeout, endpoint.as_str())
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
-            let raw = resp.text().await.unwrap_or_default();
+            let raw = resp.text().await.map_err(|error| {
+                ollama_request_error(&error, self.request_timeout, endpoint.as_str())
+            })?;
             return Err(HarnessError::Api {
                 status: status.as_u16(),
                 body: raw,
@@ -409,6 +458,7 @@ impl Provider for OllamaProvider {
 
         let (tx, rx) = futures::channel::mpsc::channel::<Result<StreamChunk>>(64);
         let mut byte_stream = resp.bytes_stream();
+        let request_timeout = self.request_timeout;
 
         tokio::spawn(async move {
             let mut tx = tx;
@@ -417,7 +467,11 @@ impl Provider for OllamaProvider {
             while let Some(item) = byte_stream.next().await {
                 match item {
                     Err(e) => {
-                        let _ = tx.try_send(Err(HarnessError::Provider(e.to_string())));
+                        let _ = tx.try_send(Err(ollama_request_error(
+                            &e,
+                            request_timeout,
+                            endpoint.as_str(),
+                        )));
                         return;
                     }
                     Ok(bytes) => {
@@ -476,5 +530,77 @@ impl Provider for OllamaProvider {
         });
 
         Ok(Box::pin(rx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    async fn spawn_stalled_server(send_headers: bool) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).await;
+            if send_headers {
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\n\
+                          Content-Type: text/event-stream\r\n\
+                          Transfer-Encoding: chunked\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+            }
+            std::future::pending::<()>().await;
+        });
+        (format!("http://{address}"), task)
+    }
+
+    #[tokio::test]
+    async fn non_streaming_request_timeout_is_bounded_and_actionable() {
+        let (base_url, server) = spawn_stalled_server(false).await;
+        let provider =
+            OllamaProvider::with_timeout(base_url, "test-model", 128, Duration::from_millis(100));
+
+        let error = provider
+            .complete(&[Message::user("hello")])
+            .await
+            .unwrap_err()
+            .to_string();
+        server.abort();
+
+        assert!(error.contains("timed out after 100ms"), "{error}");
+        assert!(error.contains("--ollama-timeout-secs"), "{error}");
+        assert!(error.contains("model may still be loading"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn streaming_body_timeout_is_bounded_and_actionable() {
+        let (base_url, server) = spawn_stalled_server(true).await;
+        let provider =
+            OllamaProvider::with_timeout(base_url, "test-model", 128, Duration::from_millis(100));
+
+        let mut stream = provider
+            .stream(&[Message::user("hello")])
+            .await
+            .expect("response headers should arrive before the timeout");
+        let error = stream
+            .next()
+            .await
+            .expect("stream should report the timeout")
+            .unwrap_err()
+            .to_string();
+        server.abort();
+
+        assert!(error.contains("timed out after 100ms"), "{error}");
+        assert!(error.contains("--ollama-timeout-secs"), "{error}");
     }
 }
