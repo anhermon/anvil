@@ -142,6 +142,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registry_rejects_wrong_input_type_before_dispatch() {
+        let registry = ToolRegistry::new();
+        registry.register(UpperCase);
+        let out = registry
+            .call("uppercase", serde_json::json!({"text": 42}))
+            .await;
+
+        assert!(out.is_error);
+        assert_eq!(
+            out.content,
+            "invalid input for uppercase: field `text` must be of type string"
+        );
+    }
+
+    #[tokio::test]
     async fn registry_unknown_tool() {
         let registry = ToolRegistry::new();
         let out = registry.call("nonexistent", serde_json::json!({})).await;
