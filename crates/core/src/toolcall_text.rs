@@ -2,7 +2,7 @@
 //! the native tool-call channel.
 //!
 //! Small local models (qwen2.5:3b class, served through Ollama) regularly slip
-//! out of the OpenAI `tool_calls` channel and write the call into the assistant
+//! out of the `OpenAI` `tool_calls` channel and write the call into the assistant
 //! message body instead — as a ```` ```json ```` fence, a `<tool_call>` tag, or a
 //! bare JSON object. A harness that only reads native `tool_calls` sees an
 //! ordinary end-of-turn and stops the run, so a recoverable formatting slip

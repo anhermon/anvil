@@ -1090,4 +1090,126 @@ mod tests {
             "expected prior session history to be injected; messages: {all_text:?}"
         );
     }
+    /// The failure that motivated the recovery path: the model writes the tool
+    /// call into the message body and ends its turn. Before, the loop read that
+    /// as a final answer and stopped one step from success.
+    #[tokio::test]
+    async fn tool_call_written_as_text_is_executed() {
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            end_turn_response(
+                "I'll check that.\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\"}}\n```",
+            ),
+            end_turn_response("done"),
+        ]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+
+        // The recovered call must have actually run: a tool-result message is
+        // present and carries the echoed payload.
+        let echoed = session.messages.iter().any(|m| {
+            m.role == Role::Tool
+                && match &m.content {
+                    MessageContent::Blocks(b) => b.iter().any(|blk| {
+                        matches!(blk, ContentBlock::ToolResult { content, .. } if content.contains("ping"))
+                    }),
+                    MessageContent::Text(t) => t.contains("ping"),
+                }
+        });
+        assert!(
+            echoed,
+            "expected the text-written tool call to execute, got: {:?}",
+            session.messages
+        );
+    }
+
+    /// A truncated fence — the model stopped mid-JSON — is still recoverable.
+    #[tokio::test]
+    async fn truncated_text_tool_call_is_recovered() {
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            end_turn_response("Here:\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\""),
+            end_turn_response("done"),
+        ]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert!(session.messages.iter().any(|m| m.role == Role::Tool));
+    }
+
+    /// Ordinary prose must not be mistaken for a tool call — otherwise every
+    /// final answer mentioning JSON would restart the loop.
+    #[tokio::test]
+    async fn plain_final_answer_still_ends_the_run() {
+        let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
+            "There are no TODO comments in crates/.",
+        )]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert_eq!(session.status, harness_core::session::SessionStatus::Done);
+        assert!(
+            !session.messages.iter().any(|m| m.role == Role::Tool),
+            "no tool should have run for a plain prose answer"
+        );
+    }
+
+    /// An unknown tool name must not be executed just because it parsed.
+    #[tokio::test]
+    async fn text_call_to_unknown_tool_is_not_executed() {
+        let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
+            "```json\n{\"name\": \"rm_rf\", \"input\": {\"path\": \"/\"}}\n```",
+        )]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert!(!session.messages.iter().any(|m| m.role == Role::Tool));
+    }
 }

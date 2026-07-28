@@ -297,6 +297,8 @@ impl Provider for OllamaProvider {
 }
 
 impl OllamaProvider {
+    // Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
+    #[allow(clippy::too_many_lines)]
     async fn complete_once(
         &self,
         messages: &[Message],
