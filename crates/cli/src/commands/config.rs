@@ -3,7 +3,7 @@ use harness_core::config::Config;
 
 #[derive(Args)]
 pub struct ConfigArgs {
-    /// Show resolved API key presence
+    /// Also report whether the configured backend has the credentials it needs
     #[arg(long)]
     pub check: bool,
 }
