@@ -108,3 +108,68 @@ pub struct TurnResponse {
     pub usage: Usage,
     pub model: String,
 }
+
+impl TurnResponse {
+    /// True when the turn carried no usable content at all — no text and no
+    /// tool call.
+    ///
+    /// Distinguishes a provider-level flake (worth retrying) from a model that
+    /// deliberately ended its turn with an answer.
+    #[must_use]
+    pub fn is_empty_turn(&self) -> bool {
+        match &self.message.content {
+            MessageContent::Text(t) => t.trim().is_empty(),
+            MessageContent::Blocks(blocks) => !blocks.iter().any(|b| match b {
+                ContentBlock::Text { text } => !text.trim().is_empty(),
+                ContentBlock::ToolUse { .. } => true,
+                ContentBlock::ToolResult { .. } => false,
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod turn_response_tests {
+    use super::{ContentBlock, Message, MessageContent, Role, StopReason, TurnResponse, Usage};
+
+    fn resp(content: MessageContent) -> TurnResponse {
+        TurnResponse {
+            message: Message {
+                role: Role::Assistant,
+                content,
+            },
+            stop_reason: StopReason::EndTurn,
+            usage: Usage::default(),
+            model: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn no_blocks_is_empty() {
+        assert!(resp(MessageContent::Blocks(vec![])).is_empty_turn());
+    }
+
+    #[test]
+    fn whitespace_only_text_is_empty() {
+        assert!(resp(MessageContent::Text("   \n".into())).is_empty_turn());
+        assert!(resp(MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "  ".into()
+        }]))
+        .is_empty_turn());
+    }
+
+    #[test]
+    fn real_text_is_not_empty() {
+        assert!(!resp(MessageContent::Text("hello".into())).is_empty_turn());
+    }
+
+    #[test]
+    fn tool_call_alone_is_not_empty() {
+        assert!(!resp(MessageContent::Blocks(vec![ContentBlock::ToolUse {
+            id: "1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({}),
+        }]))
+        .is_empty_turn());
+    }
+}

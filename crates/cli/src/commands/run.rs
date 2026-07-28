@@ -52,6 +52,11 @@ pub struct RunArgs {
     /// Use this flag when calling `anvil run` from a machine-readable context (e.g. Paperclip adapter).
     #[arg(long)]
     pub json_output: bool,
+
+    /// Sampling temperature for local (Ollama) models. Lower is more literal;
+    /// the default suits tool-calling. Ignored by hosted providers.
+    #[arg(long)]
+    pub temperature: Option<f32>,
 }
 
 // ── Terminal (coloured) hook ──────────────────────────────────────────────────
@@ -212,6 +217,21 @@ impl UiHook for JsonHook {
         }));
     }
 
+    fn on_turn_diag(&self, diag: &crate::agent::TurnDiag) {
+        Self::emit(&serde_json::json!({
+            "type": "turn",
+            "part": {
+                "iteration": diag.iteration,
+                "stopReason": diag.stop_reason,
+                "textBlocks": diag.text_blocks,
+                "toolBlocks": diag.tool_blocks,
+                "empty": diag.empty,
+                "recoveredTextCalls": diag.recovered_text_calls,
+                "repeatedToolCall": diag.repeated_tool_call,
+            }
+        }));
+    }
+
     fn on_result(&self, text: &str, is_error: bool, session_id: &str) {
         Self::emit(&serde_json::json!({
             "type": "result",
@@ -272,11 +292,11 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             tracing::info!(model = %model, base_url = %base_url, "using OllamaProvider");
-            Arc::new(OllamaProvider::new(
-                base_url,
-                &model,
-                config.provider.max_tokens,
-            ))
+            let mut p = OllamaProvider::new(base_url, &model, config.provider.max_tokens);
+            if let Some(t) = args.temperature {
+                p = p.with_temperature(t);
+            }
+            Arc::new(p)
         }
         _ => Arc::new(
             ClaudeProvider::from_env(&model, config.provider.max_tokens)
