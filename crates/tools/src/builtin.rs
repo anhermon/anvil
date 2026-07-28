@@ -210,17 +210,6 @@ fn get_read_snapshot(context: &ToolCallContext, path_key: &str) -> Option<String
     })
 }
 
-fn invalidate_read_snapshot(context: &ToolCallContext, path_key: &str) {
-    if let Ok(mut state) = safe_edit_state().lock() {
-        if let Some(paths) = state
-            .snapshots_by_session
-            .get_mut(&safe_edit_session_key(context))
-        {
-            paths.remove(path_key);
-        }
-    }
-}
-
 #[cfg(test)]
 fn reset_safe_edit_state_for_tests() {
     if let Ok(mut state) = safe_edit_state().lock() {
@@ -492,8 +481,13 @@ impl ToolHandler for WriteFileTool {
 
         match std::fs::write(&raw, &new_text) {
             Ok(()) => {
-                // Force a fresh read before subsequent overwrites.
-                invalidate_read_snapshot(context, &path_key);
+                // The write just made `new_text` the on-disk truth, and the agent
+                // authored it, so it is as good as a fresh read: record it as the
+                // current snapshot. Dropping it instead would block every
+                // subsequent edit of the same file in the session, while adding no
+                // safety -- a concurrent external change is still caught by the
+                // snapshot comparison above.
+                record_read_snapshot(context, &path_key, &new_text);
                 ToolOutput::ok(format!("wrote {} bytes to {raw}", new_text.len()))
             }
             Err(e) => ToolOutput::err(format!("write_file failed for {raw}: {e}")),
@@ -654,6 +648,59 @@ mod tests {
             out.content.contains("requires a prior read_file"),
             "expected read-before-write guard, got: {}",
             out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_allows_repeated_edits_after_one_read() {
+        let _scope = enter_test_fs_scope().await;
+        std::fs::write("iterate.txt", "v1").expect("seed file");
+
+        let read = ReadFileTool.call(json!({"path":"iterate.txt"})).await;
+        assert!(!read.is_error, "read failed: {}", read.content);
+
+        let first = WriteFileTool
+            .call(json!({"path":"iterate.txt","content":"v2"}))
+            .await;
+        assert!(!first.is_error, "first write failed: {}", first.content);
+
+        // Iterating on a file the agent just wrote must not require re-reading it.
+        let second = WriteFileTool
+            .call(json!({"path":"iterate.txt","content":"v3"}))
+            .await;
+        assert!(
+            !second.is_error,
+            "second write should be allowed after the first: {}",
+            second.content
+        );
+        assert_eq!(
+            std::fs::read_to_string("iterate.txt").expect("read back"),
+            "v3"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_allows_overwriting_a_file_it_just_created() {
+        let _scope = enter_test_fs_scope().await;
+
+        // Creating a new file needs no prior read -- there is nothing to clobber.
+        let create = WriteFileTool
+            .call(json!({"path":"created.txt","content":"v1"}))
+            .await;
+        assert!(!create.is_error, "create failed: {}", create.content);
+
+        // ...and the agent may then refine it without an intervening read_file.
+        let overwrite = WriteFileTool
+            .call(json!({"path":"created.txt","content":"v2"}))
+            .await;
+        assert!(
+            !overwrite.is_error,
+            "overwrite of just-created file should be allowed: {}",
+            overwrite.content
+        );
+        assert_eq!(
+            std::fs::read_to_string("created.txt").expect("read back"),
+            "v2"
         );
     }
 
