@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install git hooks for paperclip-harness development
+# Install git hooks for anvil development
 set -e
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HOOKS_DIR="$REPO_ROOT/.githooks"

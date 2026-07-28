@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 /// Lightweight tool definition passed to providers alongside messages.
-/// Mirrors the JSON schema shape expected by Claude / OpenAI tool-calling APIs.
+/// Mirrors the JSON schema shape expected by Claude / `OpenAI` tool-calling APIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
@@ -27,7 +27,7 @@ pub type TokenStream = Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>;
 
 /// Core provider trait — implemented per LLM backend.
 ///
-/// Implementors: ClaudeProvider, OpenAIProvider, OllamaProvider, etc.
+/// Implementors: `ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`, etc.
 #[async_trait]
 pub trait Provider: Send + Sync + 'static {
     /// Human-readable provider name (e.g. "claude-3-5-sonnet-20241022").
@@ -81,7 +81,7 @@ pub struct EchoProvider;
 
 #[async_trait]
 impl Provider for EchoProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "echo"
     }
 

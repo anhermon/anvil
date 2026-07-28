@@ -6,6 +6,7 @@ use crate::schema::ToolSchema;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -264,7 +265,7 @@ impl ToolHandler for ReadFileTool {
 }
 
 /// Executes a shell command and returns stdout/stderr.
-/// Security: only commands whose first token appears in ALLOWED_COMMANDS are permitted.
+/// Security: only commands whose first token appears in `ALLOWED_COMMANDS` are permitted.
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
@@ -364,10 +365,8 @@ impl ToolHandler for BashExecTool {
             ));
         }
 
-        use std::time::Duration;
-
         let output = tokio::time::timeout(
-            Duration::from_secs(30),
+            std::time::Duration::from_secs(30),
             tokio::task::spawn_blocking(move || {
                 std::process::Command::new("sh")
                     .arg("-c")
@@ -443,7 +442,7 @@ impl ToolHandler for WriteFileTool {
             Some(p) if !p.is_empty() => p.to_string(),
             _ => return ToolOutput::err("path is required"),
         };
-        let content = input["content"].as_str().unwrap_or("").to_string();
+        let new_text = input["content"].as_str().unwrap_or("").to_string();
 
         let p = Path::new(&raw);
         if p.is_absolute() || raw.starts_with('/') {
@@ -491,11 +490,11 @@ impl ToolHandler for WriteFileTool {
             }
         }
 
-        match std::fs::write(&raw, &content) {
+        match std::fs::write(&raw, &new_text) {
             Ok(()) => {
                 // Force a fresh read before subsequent overwrites.
                 invalidate_read_snapshot(context, &path_key);
-                ToolOutput::ok(format!("wrote {} bytes to {raw}", content.len()))
+                ToolOutput::ok(format!("wrote {} bytes to {raw}", new_text.len()))
             }
             Err(e) => ToolOutput::err(format!("write_file failed for {raw}: {e}")),
         }
@@ -937,9 +936,8 @@ impl ToolHandler for ReadSkillTool {
             _ => return ToolOutput::err("name is required"),
         };
         let path = skills_dir().join(format!("{name}.md"));
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => return ToolOutput::err(format!("skill not found: {name}")),
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return ToolOutput::err(format!("skill not found: {name}"));
         };
         let new_uses = parse_uses(&content) + 1;
         let updated = update_frontmatter_field(&content, "uses", new_uses);
@@ -987,8 +985,7 @@ impl ToolHandler for SaveSkillTool {
                 .lines()
                 .find(|l| l.trim().starts_with("created:"))
                 .and_then(|l| l.split_once(':'))
-                .map(|(_, v)| v.trim().to_string())
-                .unwrap_or_else(utc_date_string);
+                .map_or_else(utc_date_string, |(_, v)| v.trim().to_string());
             (old_ver + 1, old_uses, old_created)
         } else {
             (1, 0, utc_date_string())
@@ -1032,16 +1029,16 @@ impl ToolHandler for RefineSkillTool {
             _ => return ToolOutput::err("feedback is required"),
         };
         let path = skills_dir().join(format!("{name}.md"));
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => return ToolOutput::err(format!("skill not found: {name}")),
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return ToolOutput::err(format!("skill not found: {name}"));
         };
         let old_ver = parse_version(&content);
         let new_ver = old_ver + 1;
         let mut updated = update_frontmatter_field(&content, "version", new_ver);
-        updated.push_str(&format!(
+        let _ = write!(
+            updated,
             "\n## Refinement Notes (v{new_ver})\n\n{feedback}\n"
-        ));
+        );
         match std::fs::write(&path, &updated) {
             Ok(()) => ToolOutput::ok(updated),
             Err(e) => ToolOutput::err(format!("refine_skill failed: {e}")),

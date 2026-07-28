@@ -13,10 +13,11 @@ pub struct ToolSchema {
 
 impl ToolSchema {
     /// Build a simple schema with named string properties.
+    #[must_use]
     pub fn simple(name: &str, description: &str, required_strings: &[&str]) -> Self {
         let properties: serde_json::Map<String, Value> = required_strings
             .iter()
-            .map(|k| (k.to_string(), serde_json::json!({"type": "string"})))
+            .map(|k| ((*k).to_string(), serde_json::json!({"type": "string"})))
             .collect();
 
         Self {
@@ -31,6 +32,7 @@ impl ToolSchema {
     }
 
     /// Convert to a `ToolDef` for passing to provider methods.
+    #[must_use]
     pub fn to_def(&self) -> ToolDef {
         ToolDef {
             name: self.name.clone(),
@@ -40,6 +42,10 @@ impl ToolSchema {
     }
 
     /// Validate an input value against this schema (basic required-field check).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` with a human-readable message naming the first missing required field.
     pub fn validate(&self, input: &Value) -> Result<(), String> {
         let schema = &self.input_schema;
         if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {

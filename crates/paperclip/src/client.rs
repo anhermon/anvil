@@ -30,6 +30,7 @@ impl PaperclipClient {
     ///
     /// `api_url` — base URL (e.g. `http://127.0.0.1:3100`)
     /// `api_key` — `PAPERCLIP_API_KEY` bearer token
+    #[must_use]
     pub fn new(api_url: String, api_key: String) -> Self {
         Self {
             http: Client::new(),
@@ -40,6 +41,7 @@ impl PaperclipClient {
     }
 
     /// Attach a run ID for audit-trail headers on mutating requests.
+    #[must_use]
     pub fn with_run_id(mut self, run_id: String) -> Self {
         self.run_id = Some(run_id);
         self
@@ -89,6 +91,10 @@ impl PaperclipClient {
     // ── identity ───────────────────────────────────────────────────────────
 
     /// Step 1 — GET /api/agents/me
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn get_identity(&self) -> Result<AgentIdentity> {
         let resp = self
             .auth_get("/api/agents/me")
@@ -102,6 +108,10 @@ impl PaperclipClient {
     // ── inbox ──────────────────────────────────────────────────────────────
 
     /// Step 3 — GET /api/agents/me/inbox-lite
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn get_inbox(&self) -> Result<Vec<InboxItem>> {
         let resp = self
             .auth_get("/api/agents/me/inbox-lite")
@@ -118,6 +128,10 @@ impl PaperclipClient {
     ///
     /// Returns `Ok(Some(issue))` on success, `Ok(None)` on 409 Conflict
     /// (owned by another agent — caller should skip this task).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn checkout(
         &self,
         issue_id: &str,
@@ -126,7 +140,7 @@ impl PaperclipClient {
     ) -> Result<Option<Issue>> {
         let payload = CheckoutRequest {
             agent_id: agent_id.to_string(),
-            expected_statuses: expected_statuses.iter().map(|s| s.to_string()).collect(),
+            expected_statuses: expected_statuses.iter().map(|s| (*s).to_string()).collect(),
         };
 
         let resp = self
@@ -149,6 +163,10 @@ impl PaperclipClient {
     // ── heartbeat context ──────────────────────────────────────────────────
 
     /// Step 6 — GET /api/issues/{id}/heartbeat-context
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn get_heartbeat_context(&self, issue_id: &str) -> Result<HeartbeatContext> {
         let resp = self
             .auth_get(&format!("/api/issues/{issue_id}/heartbeat-context"))
@@ -162,6 +180,10 @@ impl PaperclipClient {
     // ── comments ───────────────────────────────────────────────────────────
 
     /// GET /api/issues/{id}/comments  (full thread)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn get_comments(&self, issue_id: &str) -> Result<Vec<Comment>> {
         let resp = self
             .auth_get(&format!("/api/issues/{issue_id}/comments"))
@@ -172,7 +194,11 @@ impl PaperclipClient {
         serde_json::from_value(body).context("deserialise comments")
     }
 
-    /// GET /api/issues/{id}/comments?after={comment_id}&order=asc  (incremental)
+    /// GET /`api/issues/{id}/comments?after={comment_id}&order=asc`  (incremental)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn get_comments_after(
         &self,
         issue_id: &str,
@@ -190,6 +216,10 @@ impl PaperclipClient {
     }
 
     /// POST /api/issues/{id}/comments
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn add_comment(&self, issue_id: &str, body: &str) -> Result<Comment> {
         let payload = AddCommentRequest {
             body: body.to_string(),
@@ -207,6 +237,10 @@ impl PaperclipClient {
     // ── update issue ───────────────────────────────────────────────────────
 
     /// PATCH /api/issues/{id}
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn update_issue(&self, issue_id: &str, req: UpdateIssueRequest) -> Result<Issue> {
         let resp = self
             .auth_patch(&format!("/api/issues/{issue_id}"))
@@ -221,6 +255,10 @@ impl PaperclipClient {
     // ── convenience: set status + optional comment ─────────────────────────
 
     /// Mark issue done with an optional comment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn mark_done(&self, issue_id: &str, comment: Option<&str>) -> Result<Issue> {
         self.update_issue(
             issue_id,
@@ -234,6 +272,10 @@ impl PaperclipClient {
     }
 
     /// Mark issue blocked with a required comment explaining the blocker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn mark_blocked(&self, issue_id: &str, comment: &str) -> Result<Issue> {
         self.update_issue(
             issue_id,
@@ -249,6 +291,10 @@ impl PaperclipClient {
     // ── create issue ───────────────────────────────────────────────────────
 
     /// POST /api/companies/{companyId}/issues
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails, the API responds with a non-success status, or the response body cannot be deserialised.
     pub async fn create_issue(&self, company_id: &str, req: CreateIssueRequest) -> Result<Issue> {
         let resp = self
             .auth_post(&format!("/api/companies/{company_id}/issues"))
@@ -278,7 +324,7 @@ mod tests {
         assert_eq!(c.run_id.as_deref(), Some("run-abc"));
     }
 
-    /// checkout() must return Ok(None) on a 409 Conflict response so the
+    /// `checkout()` must return `Ok(None)` on a 409 Conflict response so the
     /// heartbeat loop skips the task rather than propagating an error.
     #[tokio::test]
     async fn checkout_returns_none_on_409() {

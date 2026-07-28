@@ -24,6 +24,7 @@ impl ClaudeCodeProvider {
         }
     }
 
+    #[must_use]
     pub fn default_model() -> Self {
         Self::new("claude-sonnet-4-5")
     }
@@ -236,10 +237,15 @@ impl Provider for ClaudeCodeProvider {
 fn extract_stream_text(v: &serde_json::Value) -> Option<String> {
     let event_type = v.get("type")?.as_str()?;
     match event_type {
-        "text" => v.get("text")?.as_str().map(|s| s.to_string()),
+        "text" => v
+            .get("text")?
+            .as_str()
+            .map(std::string::ToString::to_string),
         "content_block_delta" => v.get("delta").and_then(|d| {
             if d.get("type")?.as_str()? == "text_delta" {
-                d.get("text")?.as_str().map(|s| s.to_string())
+                d.get("text")?
+                    .as_str()
+                    .map(std::string::ToString::to_string)
             } else {
                 None
             }

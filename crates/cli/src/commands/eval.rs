@@ -38,6 +38,8 @@ pub struct EvalArgs {
     pub fail_fast: bool,
 }
 
+// Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
+#[allow(clippy::too_many_lines)]
 pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
 
@@ -109,11 +111,10 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
     let mut failures: Vec<(usize, String, String, String)> = Vec::new(); // (idx, label, got, expected)
 
     for (idx, case) in cases.iter().enumerate() {
-        let label = case
-            .label
-            .as_deref()
-            .map(|l| l.to_string())
-            .unwrap_or_else(|| format!("case {}", idx + 1));
+        let label = case.label.as_deref().map_or_else(
+            || format!("case {}", idx + 1),
+            std::string::ToString::to_string,
+        );
 
         let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone());
         let session = agent.run(&case.goal).await?;
@@ -131,10 +132,10 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
 
         if pass {
             passed += 1;
-            println!("[PASS] {}", label);
+            println!("[PASS] {label}");
         } else {
             failed += 1;
-            println!("[FAIL] {}", label);
+            println!("[FAIL] {label}");
             println!("       expected to contain: {:?}", case.expected);
             println!(
                 "       got:                 {:?}",
@@ -153,7 +154,7 @@ pub async fn execute(args: EvalArgs) -> anyhow::Result<()> {
     println!("Results: {}/{} passed", passed, passed + failed);
 
     if failed > 0 {
-        anyhow::bail!("{} case(s) failed", failed);
+        anyhow::bail!("{failed} case(s) failed");
     }
 
     Ok(())

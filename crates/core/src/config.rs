@@ -17,7 +17,7 @@ pub struct ProviderConfig {
     pub model: String,
     /// Max tokens per response
     pub max_tokens: u32,
-    /// API key — prefer reading from env var ANTHROPIC_API_KEY / OPENAI_API_KEY
+    /// API key — prefer reading from env var `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
     pub api_key: Option<String>,
     /// Base URL override (useful for Ollama or proxies)
     pub base_url: Option<String>,
@@ -25,7 +25,7 @@ pub struct ProviderConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    /// SQLite database path
+    /// `SQLite` database path
     pub db_path: PathBuf,
     /// Max episodes to retain in context window
     pub max_context_episodes: usize,
@@ -69,6 +69,10 @@ impl Default for Config {
 
 impl Config {
     /// Load config from disk, falling back to defaults for missing values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config file exists but cannot be read or parsed as TOML.
     pub fn load() -> anyhow::Result<Self> {
         let path = config_path();
         if path.exists() {
@@ -80,6 +84,7 @@ impl Config {
     }
 
     /// Resolve API key: config file → environment variable.
+    #[must_use]
     pub fn resolved_api_key(&self) -> Option<String> {
         self.provider
             .api_key

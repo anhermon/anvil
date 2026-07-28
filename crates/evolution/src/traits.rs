@@ -64,7 +64,7 @@ pub trait Validator: Send + Sync + 'static {
 
 /// **Gate 5 – Applier**: persist or apply a validated candidate.
 ///
-/// The default implementation writes to the evolution SQLite log.
+/// The default implementation writes to the evolution `SQLite` log.
 /// Custom implementations may also patch the live config file.
 #[async_trait]
 pub trait Applier: Send + Sync + 'static {

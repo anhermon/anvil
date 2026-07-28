@@ -46,7 +46,7 @@ pub struct RunArgs {
     ///
     /// Each line is a JSON object with a `type` field:
     ///   {"type":"text",     "part":{"text":"..."}}
-    ///   {"type":"tool_use", "part":{"tool":"bash","callID":"...","state":{"status":"completed","input":{...},"output":"..."}}}
+    ///   {"`type":"tool_use`", "part":{"tool":"bash","callID":"...","state":{"status":"completed","input":{...},"output":"..."}}}
     ///   {"type":"result",   "part":{"text":"...","isError":false,"sessionId":"..."}}
     ///
     /// Use this flag when calling `anvil run` from a machine-readable context (e.g. Paperclip adapter).
@@ -77,12 +77,18 @@ impl UiHook for CliHook {
             format!("thinking... [{iteration}/{max_iter}]")
         };
         let pb = ui::thinking_spinner(&label);
-        let mut guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .spinner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *guard = Some(pb);
     }
 
     fn on_thinking_done(&self) {
-        let mut guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .spinner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(pb) = guard.take() {
             pb.finish_and_clear();
         }
@@ -91,7 +97,10 @@ impl UiHook for CliHook {
     fn on_tool_call(&self, name: &str, input_preview: &str) {
         // Pause spinner output so tool lines print cleanly.
         {
-            let guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self
+                .spinner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(pb) = guard.as_ref() {
                 pb.suspend(|| {
                     ui::print_tool_call(name, input_preview);
@@ -104,7 +113,10 @@ impl UiHook for CliHook {
 
     fn on_tool_result(&self, output: &str) {
         {
-            let guard = self.spinner.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self
+                .spinner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(pb) = guard.as_ref() {
                 pb.suspend(|| {
                     ui::print_tool_result(output);
@@ -122,12 +134,12 @@ impl UiHook for CliHook {
 /// (e.g. the Paperclip `anvil-local` adapter UI parser).
 ///
 /// Each event is a JSON object on a single line followed by `\n`. The format
-/// mirrors the OpenCode session event stream so existing UI parsers can reuse logic.
+/// mirrors the `OpenCode` session event stream so existing UI parsers can reuse logic.
 struct JsonHook {
     /// Model identifier (e.g. "claude-sonnet-4-6") included in the result event.
     model: String,
     /// Pending tool call names keyed by callID — used to re-attach the name when
-    /// emitting the combined tool_use event with both input and output.
+    /// emitting the combined `tool_use` event with both input and output.
     pending: std::sync::Mutex<std::collections::HashMap<String, (String, serde_json::Value)>>,
 }
 
@@ -155,20 +167,26 @@ impl UiHook for JsonHook {
 
     fn on_tool_call_full(&self, name: &str, tool_use_id: &str, input: &serde_json::Value) {
         // Store the pending call; we emit the full event once we have the output too.
-        let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.insert(tool_use_id.to_string(), (name.to_string(), input.clone()));
     }
 
     fn on_tool_result_full(&self, tool_use_id: &str, output: &str, is_error: bool) {
         let entry = {
-            let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = self
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.remove(tool_use_id)
         };
 
         let (tool_name, input) = entry.unwrap_or_else(|| {
             (
                 "unknown".to_string(),
-                serde_json::Value::Object(Default::default()),
+                serde_json::Value::Object(serde_json::Map::default()),
             )
         });
         let status = if is_error { "error" } else { "completed" };
@@ -209,6 +227,8 @@ impl UiHook for JsonHook {
 
 // ── Command entry point ───────────────────────────────────────────────────────
 
+// Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
+#[allow(clippy::too_many_lines)]
 pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
 
@@ -260,7 +280,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         }
         _ => Arc::new(
             ClaudeProvider::from_env(&model, config.provider.max_tokens)
-                .map_err(|e| anyhow::anyhow!("{}", e))?,
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
         ),
     };
 
@@ -323,7 +343,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
         // Inform user about active session name.
         if let Some(ref sname) = args.session {
-            eprintln!("  session name: {}\n", sname);
+            eprintln!("  session name: {sname}\n");
         }
 
         let opts = RunOptions {
@@ -337,14 +357,14 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
         let t0 = Instant::now();
         let session = agent.run_with_options(&args.goal, opts).await?;
-        let elapsed_ms = t0.elapsed().as_millis() as u64;
+        let elapsed_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         if let Some(msg) = session.messages.last() {
             ui::print_response(msg.text().unwrap_or("(no response)"));
         }
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
-        eprintln!("  session {} | status {:?}", session.id, session.status,);
+        eprintln!("  session {} | status {:?}", session.id, session.status);
     }
 
     Ok(())

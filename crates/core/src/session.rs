@@ -46,6 +46,7 @@ impl Session {
         self.status = status;
     }
 
+    #[must_use]
     pub fn is_done(&self) -> bool {
         self.status != SessionStatus::Running
     }
