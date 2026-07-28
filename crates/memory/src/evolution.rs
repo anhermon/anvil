@@ -12,11 +12,15 @@ pub struct EvolutionEntry<'a> {
 }
 
 /// Insert a single evolution record into the database.
+///
+/// # Errors
+///
+/// Returns an error if the insert query fails.
 pub async fn insert_evolution_entry(pool: &SqlitePool, entry: &EvolutionEntry<'_>) -> Result<()> {
     sqlx::query(
-        r#"INSERT INTO evolution_log
+        r"INSERT INTO evolution_log
                (id, session_id, prompt_score, outcome_kind, outcome_detail, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)"#,
+           VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(entry.id)
     .bind(entry.session_id)

@@ -21,6 +21,8 @@ pub async fn execute(args: AuthArgs) -> anyhow::Result<()> {
     }
 }
 
+// Kept async for a uniform signature across command handlers.
+#[allow(clippy::unused_async)]
 async fn status() -> anyhow::Result<()> {
     let config = Config::load()?;
 

@@ -12,7 +12,7 @@ pub struct WebhookConfig {
     /// Set this to the same value as configured in the GitHub webhook settings.
     pub webhook_secret: String,
 
-    /// Paperclip API base URL (e.g. "http://localhost:4000")
+    /// Paperclip API base URL (e.g. "<http://localhost:4000>")
     pub paperclip_api_url: String,
 
     /// Paperclip API key (agent JWT or personal access token)

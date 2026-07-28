@@ -24,6 +24,7 @@ pub struct WebhookServer {
 }
 
 impl WebhookServer {
+    #[must_use]
     pub fn new(config: WebhookConfig) -> Self {
         Self {
             config: Arc::new(config),
@@ -31,6 +32,10 @@ impl WebhookServer {
     }
 
     /// Start the Axum HTTP server and block until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configured address cannot be bound or the server exits abnormally.
     pub async fn run(self) -> anyhow::Result<()> {
         let bind = self.config.bind.clone();
         let state = Arc::new(AppState {
@@ -65,15 +70,14 @@ async fn handle_webhook(
     body: Bytes,
 ) -> StatusCode {
     // 1. Verify signature
-    let sig = match headers
+    let sig = if let Some(s) = headers
         .get("x-hub-signature-256")
         .and_then(|v| v.to_str().ok())
     {
-        Some(s) => s.to_string(),
-        None => {
-            warn!("Webhook received without X-Hub-Signature-256");
-            return StatusCode::UNAUTHORIZED;
-        }
+        s.to_string()
+    } else {
+        warn!("Webhook received without X-Hub-Signature-256");
+        return StatusCode::UNAUTHORIZED;
     };
 
     if let Err(e) = signature::verify(&state.config.webhook_secret, &body, &sig) {
@@ -82,12 +86,11 @@ async fn handle_webhook(
     }
 
     // 2. Identify event type
-    let event = match headers.get("x-github-event").and_then(|v| v.to_str().ok()) {
-        Some(e) => e.to_string(),
-        None => {
-            warn!("Webhook missing X-GitHub-Event header");
-            return StatusCode::BAD_REQUEST;
-        }
+    let event = if let Some(e) = headers.get("x-github-event").and_then(|v| v.to_str().ok()) {
+        e.to_string()
+    } else {
+        warn!("Webhook missing X-GitHub-Event header");
+        return StatusCode::BAD_REQUEST;
     };
 
     // 3. Parse into a normalised MentionContext (only handle `created` actions)
@@ -119,9 +122,8 @@ async fn handle_webhook(
         }
     };
 
-    let ctx = match ctx {
-        Some(c) => c,
-        None => return StatusCode::OK,
+    let Some(ctx) = ctx else {
+        return StatusCode::OK;
     };
 
     // 4. Extract @mentions and match against configured agents
@@ -131,12 +133,11 @@ async fn handle_webhook(
     }
 
     for handle in &mentions {
-        let agent_id = match state.config.agents.get(handle.as_str()) {
-            Some(id) => id.clone(),
-            None => {
-                info!(handle = %handle, "No agent configured for mention");
-                continue;
-            }
+        let agent_id = if let Some(id) = state.config.agents.get(handle.as_str()) {
+            id.clone()
+        } else {
+            info!(handle = %handle, "No agent configured for mention");
+            continue;
         };
 
         match state

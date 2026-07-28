@@ -36,6 +36,10 @@ impl EvolutionEngine {
     /// Run one full evolution cycle for the given `session`.
     ///
     /// `current_prompt` is the system prompt used during the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any validator or the applier fails.
     pub async fn evolve(
         &self,
         session: &Session,

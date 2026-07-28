@@ -32,7 +32,7 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: Test
@@ -81,16 +81,16 @@ jobs:
           arguments: --all-features
 
   msrv:
-    name: MSRV (1.75)
+    name: MSRV (1.86)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust 1.75
+      - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.75"
+          toolchain: "1.86"
       - uses: Swatinem/rust-cache@v2
         with:
           key: msrv
       - name: Check MSRV
-        run: cargo check --workspace
+        run: cargo check --workspace --locked

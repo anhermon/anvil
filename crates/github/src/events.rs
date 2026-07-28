@@ -74,7 +74,7 @@ pub struct MentionContext {
     pub body: String,
     /// GitHub login of the comment author
     pub author: String,
-    /// Kind: "issue" or "pull_request"
+    /// Kind: "issue" or "`pull_request`"
     pub kind: String,
 }
 

@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -150,6 +151,8 @@ impl Agent {
         Box::pin(self.run_inner(goal, opts))
     }
 
+    // Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
+    #[allow(clippy::too_many_lines)]
     async fn run_inner(&self, goal: &str, opts: RunOptions) -> anyhow::Result<Session> {
         let mut session = Session::new(goal);
         info!(
@@ -218,7 +221,10 @@ impl Agent {
         if let Some(ref name) = opts.session_name {
             let history = self
                 .memory
-                .recent_by_name(name, self.config.memory.max_context_episodes as i64)
+                .recent_by_name(
+                    name,
+                    i64::try_from(self.config.memory.max_context_episodes).unwrap_or(i64::MAX),
+                )
                 .await
                 .unwrap_or_default();
 
@@ -244,7 +250,12 @@ impl Agent {
         messages.push(Message::user(goal));
 
         // Convert registered tool schemas to ToolDefs for the provider.
-        let tool_defs: Vec<_> = self.tools.schemas().iter().map(|s| s.to_def()).collect();
+        let tool_defs: Vec<_> = self
+            .tools
+            .schemas()
+            .iter()
+            .map(harness_tools::ToolSchema::to_def)
+            .collect();
 
         loop {
             if session.iteration >= max_iter {
@@ -315,43 +326,42 @@ impl Agent {
                     let (tool_calls, text_blocks): (
                         Vec<(String, String, serde_json::Value)>,
                         Vec<String>,
-                    ) = match &response.message.content {
-                        MessageContent::Blocks(blocks) => {
-                            let tools = blocks
-                                .iter()
-                                .filter_map(|b| {
-                                    if let ContentBlock::ToolUse { id, name, input } = b {
-                                        Some((id.clone(), name.clone(), input.clone()))
-                                    } else {
+                    ) = if let MessageContent::Blocks(blocks) = &response.message.content {
+                        let tools = blocks
+                            .iter()
+                            .filter_map(|b| {
+                                if let ContentBlock::ToolUse { id, name, input } = b {
+                                    Some((id.clone(), name.clone(), input.clone()))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        let texts = blocks
+                            .iter()
+                            .filter_map(|b| {
+                                if let ContentBlock::Text { text } = b {
+                                    if text.is_empty() {
                                         None
-                                    }
-                                })
-                                .collect();
-                            let texts = blocks
-                                .iter()
-                                .filter_map(|b| {
-                                    if let ContentBlock::Text { text } = b {
-                                        if !text.is_empty() {
-                                            Some(text.clone())
-                                        } else {
-                                            None
-                                        }
                                     } else {
-                                        None
+                                        Some(text.clone())
                                     }
-                                })
-                                .collect();
-                            (tools, texts)
-                        }
-                        _ => {
-                            warn!("stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn");
-                            let last_text =
-                                session.messages.last().and_then(|m| m.text()).unwrap_or("");
-                            self.hook
-                                .on_result(last_text, false, &session.id.to_string());
-                            session.finish(SessionStatus::Done);
-                            break;
-                        }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        (tools, texts)
+                    } else {
+                        warn!(
+                            "stop_reason=ToolUse but no ToolUse blocks found; treating as EndTurn"
+                        );
+                        let last_text =
+                            session.messages.last().and_then(|m| m.text()).unwrap_or("");
+                        self.hook
+                            .on_result(last_text, false, &session.id.to_string());
+                        session.finish(SessionStatus::Done);
+                        break;
                     };
 
                     // Emit any text blocks that appear before or alongside the tool calls.
@@ -402,8 +412,7 @@ impl Agent {
                                 .char_indices()
                                 .take_while(|(idx, _)| *idx < 10000)
                                 .last()
-                                .map(|(idx, ch)| idx + ch.len_utf8())
-                                .unwrap_or(0);
+                                .map_or(0, |(idx, ch)| idx + ch.len_utf8());
                             let truncated_chars = output.content[truncate_at..].chars().count();
                             output.content = format!(
                                 "{}... [TRUNCATED {} characters]",
@@ -476,7 +485,7 @@ impl Agent {
                     let ts = ep.created_at.format("%Y-%m-%dT%H:%M:%SZ");
                     // Use first 200 chars of content as the summary.
                     let summary: String = ep.content.chars().take(200).collect();
-                    header.push_str(&format!("- {ts}: {summary}\n"));
+                    let _ = writeln!(header, "- {ts}: {summary}");
                 }
                 header.push('\n');
                 header.push_str(base_system);
@@ -562,7 +571,7 @@ mod tests {
 
     #[async_trait]
     impl Provider for ScriptedProvider {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "scripted"
         }
 
@@ -785,7 +794,7 @@ mod tests {
         }
         #[async_trait]
         impl Provider for CapturingProvider {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "capturing"
             }
             async fn complete(
@@ -916,7 +925,7 @@ mod tests {
         }
         #[async_trait]
         impl Provider for CapturingProvider {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "capturing"
             }
             async fn complete(
@@ -955,7 +964,7 @@ mod tests {
         let msgs = captured.lock().unwrap();
         let all_text: Vec<String> = msgs
             .iter()
-            .filter_map(|m| m.text().map(|t| t.to_string()))
+            .filter_map(|m| m.text().map(std::string::ToString::to_string))
             .collect();
 
         assert!(

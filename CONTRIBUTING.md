@@ -17,7 +17,7 @@ cargo build          # verify dependencies resolve
 cargo test           # should be green — uses echo provider, no API key needed
 ```
 
-Minimum toolchain: **Rust 1.75** (see `Cargo.toml` `rust-version`).
+Minimum toolchain: **Rust 1.86** (see `Cargo.toml` `rust-version`, pinned in `rust-toolchain.toml`).
 
 ## What to work on
 

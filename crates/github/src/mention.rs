@@ -1,7 +1,8 @@
 /// Extract all @mention handles from a comment body.
 ///
 /// Returns lower-cased handles without the `@` prefix.
-/// E.g. "Hey @Build-Agent please review" → ["build-agent"]
+/// E.g. `"Hey @Build-Agent please review"` → `["build-agent"]`
+#[must_use]
 pub fn extract_mentions(body: &str) -> Vec<String> {
     let mut mentions = Vec::new();
     let mut chars = body.chars().peekable();

@@ -37,7 +37,7 @@ impl OllamaProvider {
         )
     }
 
-    fn build_openai_messages(&self, messages: &[Message]) -> Vec<OpenAiMessage> {
+    fn build_openai_messages(messages: &[Message]) -> Vec<OpenAiMessage> {
         let mut result = Vec::new();
         for msg in messages {
             let role = match msg.role {
@@ -89,7 +89,7 @@ impl OllamaProvider {
                                         },
                                     });
                                 }
-                                _ => {}
+                                ContentBlock::ToolResult { .. } => {}
                             }
                         }
                         result.push(OpenAiMessage {
@@ -258,7 +258,7 @@ impl Provider for OllamaProvider {
 
         let body = OpenAiRequest {
             model: &self.model,
-            messages: self.build_openai_messages(messages),
+            messages: Self::build_openai_messages(messages),
             max_tokens: Some(self.max_tokens),
             stream: false,
             tools: openai_tools,
@@ -299,8 +299,7 @@ impl Provider for OllamaProvider {
             .ok_or_else(|| HarnessError::Provider("Ollama returned empty choices".to_string()))?;
 
         let stop_reason = match choice.finish_reason.as_deref() {
-            Some("tool_calls") | Some("function_call") => StopReason::ToolUse,
-            Some("stop") => StopReason::EndTurn,
+            Some("tool_calls" | "function_call") => StopReason::ToolUse,
             Some("length") => StopReason::MaxTokens,
             _ => StopReason::EndTurn,
         };
@@ -353,6 +352,8 @@ impl Provider for OllamaProvider {
         self.stream_with_tools(messages, &[]).await
     }
 
+    // Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
+    #[allow(clippy::too_many_lines)]
     async fn stream_with_tools(
         &self,
         messages: &[Message],
@@ -378,7 +379,7 @@ impl Provider for OllamaProvider {
 
         let body = OpenAiRequest {
             model: &self.model,
-            messages: self.build_openai_messages(messages),
+            messages: Self::build_openai_messages(messages),
             max_tokens: Some(self.max_tokens),
             stream: true,
             tools: openai_tools,

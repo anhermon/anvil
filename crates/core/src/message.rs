@@ -25,7 +25,7 @@ pub enum MessageContent {
     Blocks(Vec<ContentBlock>),
 }
 
-/// A structured content block (text, tool_use, tool_result).
+/// A structured content block (text, `tool_use`, `tool_result`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
@@ -66,6 +66,7 @@ impl Message {
     }
 
     /// Extract plain text from any content variant.
+    #[must_use]
     pub fn text(&self) -> Option<&str> {
         match &self.content {
             MessageContent::Text(s) => Some(s.as_str()),

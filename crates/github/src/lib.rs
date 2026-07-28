@@ -4,10 +4,8 @@
 //! verifies HMAC-SHA256 signatures, detects agent @mentions in comments,
 //! and creates Paperclip tasks for the mentioned agents.
 
-// Pedantic lints that apply workspace-wide are acknowledged here.
-// The github crate is intentionally pragmatic for v0; tighten later.
-#![allow(clippy::pedantic)]
-
+// Test code intentionally uses unwrap/expect/panic: a failed assertion should abort the test.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod config;
 pub mod events;
 pub mod mention;

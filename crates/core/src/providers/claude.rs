@@ -34,6 +34,10 @@ impl ClaudeProvider {
 
     /// Build from the best available auth source:
     /// subscription credentials file -> `ANTHROPIC_API_KEY` env var -> error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HarnessError::Config`] if no usable auth source is available.
     pub fn from_env(model: impl Into<String>, max_tokens: u32) -> Result<Self> {
         let auth = AuthMethod::resolve().map_err(|e| HarnessError::Config(e.to_string()))?;
         Ok(Self {
@@ -52,17 +56,14 @@ impl ClaudeProvider {
             .header("content-type", "application/json")
     }
 
-    fn build_api_messages(
-        &self,
-        messages: &[Message],
-    ) -> Result<(Option<String>, Vec<ApiMessage>)> {
+    fn build_api_messages(messages: &[Message]) -> Result<(Option<String>, Vec<ApiMessage>)> {
         let mut system_prompt: Option<String> = None;
         let mut api_messages: Vec<ApiMessage> = Vec::new();
 
         for msg in messages {
             match msg.role {
                 Role::System => {
-                    system_prompt = msg.text().map(|t| t.to_string());
+                    system_prompt = msg.text().map(std::string::ToString::to_string);
                 }
                 Role::User | Role::Assistant | Role::Tool => {
                     let role = match msg.role {
@@ -148,6 +149,8 @@ enum ApiContent {
     Unknown,
 }
 
+// Field names mirror the Anthropic API JSON payload verbatim.
+#[allow(clippy::struct_field_names)]
 #[derive(Deserialize)]
 struct ApiUsage {
     input_tokens: u32,
@@ -237,7 +240,7 @@ impl Provider for ClaudeProvider {
     }
 
     async fn complete(&self, messages: &[Message]) -> Result<TurnResponse> {
-        let (system_prompt, api_messages) = self.build_api_messages(messages)?;
+        let (system_prompt, api_messages) = Self::build_api_messages(messages)?;
 
         let body = ApiRequest {
             model: &self.model,
@@ -281,7 +284,7 @@ impl Provider for ClaudeProvider {
         messages: &[Message],
         tools: &[ToolDef],
     ) -> Result<TurnResponse> {
-        let (system_prompt, api_messages) = self.build_api_messages(messages)?;
+        let (system_prompt, api_messages) = Self::build_api_messages(messages)?;
 
         let tool_defs: Vec<serde_json::Value> = tools
             .iter()
@@ -334,7 +337,7 @@ impl Provider for ClaudeProvider {
 
     /// Real SSE streaming — yields text deltas as they arrive from the Anthropic API.
     async fn stream(&self, messages: &[Message]) -> Result<TokenStream> {
-        let (system_prompt, api_messages) = self.build_api_messages(messages)?;
+        let (system_prompt, api_messages) = Self::build_api_messages(messages)?;
 
         let body = ApiStreamRequest {
             model: &self.model,

@@ -3,7 +3,7 @@
 //! This crate provides:
 //! - [`PaperclipClient`] — typed HTTP client for the Paperclip REST API
 //! - [`HeartbeatLoop`] — full heartbeat cycle: poll inbox → checkout → run → report
-//! - [`types`] — shared API types (Agent, Issue, InboxItem, …)
+//! - [`types`] — shared API types (Agent, Issue, `InboxItem`, …)
 //!
 //! # Quick start
 //!
@@ -22,9 +22,17 @@
 //! }
 //! ```
 
-#![allow(clippy::pedantic)]
-#![forbid(unsafe_code)]
-
+// Test code intentionally uses unwrap/expect/panic (a failed assertion should abort the
+// test) and declares test-local items next to their use.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::items_after_statements
+    )
+)]
 pub mod client;
 pub mod heartbeat;
 pub mod types;

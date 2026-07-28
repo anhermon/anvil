@@ -1,3 +1,14 @@
+// Test code intentionally uses unwrap/expect/panic (a failed assertion should abort the
+// test) and declares test-local items next to their use.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::items_after_statements
+    )
+)]
 mod agent;
 mod commands;
 mod ui;
