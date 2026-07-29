@@ -554,6 +554,24 @@ impl Agent {
                         });
                     }
 
+                    // A model that re-issues the identical call will keep doing
+                    // so until the iteration cap: the tool result it just got is
+                    // the same one it already ignored, so nothing in the context
+                    // pushes it elsewhere. Say so explicitly on the channel it is
+                    // already reading.
+                    if repeated_tool_call {
+                        if let Some(ContentBlock::ToolResult { content, .. }) =
+                            result_blocks.first_mut()
+                        {
+                            content.push_str(
+                                "\n\n[harness] This is the same tool call, with the same \
+                                 arguments, as your previous turn — so this is the same result. \
+                                 Repeating it again will not help. Either use this output to \
+                                 answer, or try a materially different command.",
+                            );
+                        }
+                    }
+
                     // Feed results back as a tool-role message and continue.
                     let tool_result_msg = Message {
                         role: Role::Tool,

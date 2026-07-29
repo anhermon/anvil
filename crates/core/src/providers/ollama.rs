@@ -10,14 +10,6 @@ use crate::{
     provider::{Provider, StreamChunk, TokenStream, ToolDef},
 };
 
-/// Sampling temperature used when the caller does not specify one.
-///
-/// Ollama's own default is 0.8, which is tuned for open-ended chat. Local
-/// instruct models at that temperature drift out of the tool-call format —
-/// malformed JSON arguments and broken shell quoting. Agentic tool selection
-/// wants near-greedy decoding instead.
-pub const DEFAULT_TEMPERATURE: f32 = 0.2;
-
 /// How many times to re-request a turn that came back completely empty.
 ///
 /// Ollama returns a well-formed HTTP 200 with neither content nor tool calls at
@@ -30,7 +22,14 @@ pub struct OllamaProvider {
     model: String,
     base_url: String,
     max_tokens: u32,
-    temperature: f32,
+    /// `None` leaves sampling to the server's own default.
+    ///
+    /// Near-greedy decoding looks right for tool calling on priors, but
+    /// measured the opposite on `qwen2.5:3b-instruct`: at 0.2 the model locks
+    /// onto a wrong conclusion ("none of the provided functions can be used")
+    /// and re-emits identical tool calls instead of varying its retry. Left
+    /// unset unless the caller asks.
+    temperature: Option<f32>,
 }
 
 impl OllamaProvider {
@@ -43,14 +42,14 @@ impl OllamaProvider {
             base_url: base_url.into(),
             model: model.into(),
             max_tokens,
-            temperature: DEFAULT_TEMPERATURE,
+            temperature: None,
         }
     }
 
-    /// Override the sampling temperature.
+    /// Pin the sampling temperature instead of using the server default.
     #[must_use]
     pub fn with_temperature(mut self, temperature: f32) -> Self {
-        self.temperature = temperature;
+        self.temperature = Some(temperature);
         self
     }
 
@@ -158,7 +157,8 @@ struct OpenAiRequest<'a> {
     messages: Vec<OpenAiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
-    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OpenAiTool>>,
