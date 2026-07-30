@@ -664,8 +664,15 @@ impl Agent {
         let result = session
             .messages
             .last()
+            .filter(|message| message.role == Role::Assistant)
             .and_then(|m| m.text())
-            .unwrap_or("(sub-agent produced no output)")
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "sub-agent ended without a final assistant response \
+                     (it may have reached its iteration limit)"
+                )
+            })?
             .to_string();
 
         info!(
@@ -905,6 +912,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, "context-aware result");
+    }
+
+    #[tokio::test]
+    async fn subagent_without_final_assistant_text_returns_error() {
+        let provider = Arc::new(ScriptedProvider::new(vec![tool_use_response(
+            "child-echo",
+            "echo",
+            serde_json::json!({"message": "unfinished"}),
+        )]));
+        let memory = make_memory().await;
+        let config = make_config(1);
+
+        let agent = Agent::new(provider, memory, config);
+        let result = agent.spawn_subagent("keep working", "").await;
+
+        assert!(result.is_err());
+        let message = result.unwrap_err().to_string();
+        assert!(
+            message.contains("without a final assistant response"),
+            "unexpected error: {message}"
+        );
     }
 
     // -- New tests for memory recall and session continuity -------------------
