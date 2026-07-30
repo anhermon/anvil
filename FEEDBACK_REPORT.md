@@ -16,6 +16,54 @@ For this dogfood pass, alignment means:
 - machine-readable output identifies what actually ran; and
 - fixes are small, tested, and independently reviewable.
 
+## Standing finding: `anvil run` contaminates its own benchmarks
+
+**Every `anvil run` invocation silently injects up to 5 past episodes into the
+system prompt.** This is not opt-in and `--session` does not scope it.
+
+`Agent::build_system_prompt_with_memory` (`crates/cli/src/agent.rs`) runs a
+full-text search of the episodic memory database for the *goal text*, takes the
+top 5 matches, and prepends them to the system prompt as a
+`[Memory: N relevant episodes]` block:
+
+```rust
+match self.memory.search(goal, 5).await { /* ... prepend to system prompt ... */ }
+```
+
+The database is a single per-user SQLite file under `$HOME`
+(`~/.paperclip/harness/memory.db`). It is shared by every run, every session
+name, and every working directory. Each completed run writes its goal and
+result back into that same database.
+
+### Why this invalidates benchmark results
+
+Any harness that loops `anvil run` over a fixed set of goals is not measuring
+independent trials. Run *k* of a goal is scored with the results of runs
+*1…k-1* of that same goal pasted into its system prompt — the search key is the
+goal text, so the strongest FTS matches are always the prior attempts at the
+identical task. The measured quantity drifts from "can the model do this task"
+toward "can the model copy the answer it was handed", and it improves with
+repetition regardless of the model.
+
+The contamination is invisible in the output: the injected block is in the
+system prompt, not the transcript, and no CLI flag reports it.
+
+**Consequence: every local fine-tune comparison run through `anvil run` before
+this finding is unsound and must not be cited.** The earlier fine-tune numbers
+in particular measured accumulated memory, not model capability. They are
+withdrawn, not merely uncertain — a re-run under an isolated database is
+required before any claim about them is made again.
+
+### What a sound benchmark requires
+
+1. A per-trial empty database (point `$HOME` at a fresh temporary directory —
+   there is currently no config or flag that redirects the DB path), or
+2. a switch that disables global recall outright. This does not exist yet and
+   is the recommended fix: recall should be opt-in, not always-on.
+
+Ordering matters too: because each run writes back before the next reads, trials
+must be isolated from each other, not merely from earlier sessions.
+
 ## Iteration 1 — 2026-07-28
 
 ### Inventory
@@ -34,8 +82,9 @@ and shell tools, `spawn_subagent`, and the skill-library tools
 
 The `evolution`, `github`, and `paperclip` crates build as workspace members
 but are not wired into the shipped binary. PR #88 already covers Ollama
-small-model protocol recovery and benchmark-memory contamination, so that
-area was excluded from this pass.
+small-model protocol recovery, so that area was excluded from this pass. The
+benchmark-memory contamination described above is *not* fixed by #88 — it
+remains open; #88 only made the local run path reliable enough to observe it.
 
 ### Exercises and wins
 
