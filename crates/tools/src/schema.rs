@@ -41,13 +41,18 @@ impl ToolSchema {
         }
     }
 
-    /// Validate an input value against this schema (basic required-field check).
+    /// Validate an input value against the schema shape used by built-in tools.
     ///
     /// # Errors
     ///
-    /// Returns `Err` with a human-readable message naming the first missing required field.
+    /// Returns `Err` with a human-readable message naming the first missing or
+    /// incorrectly typed field.
     pub fn validate(&self, input: &Value) -> Result<(), String> {
         let schema = &self.input_schema;
+        if let Some(expected) = schema.get("type").and_then(Value::as_str) {
+            validate_json_type(input, expected, "input")?;
+        }
+
         if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
             for field in required {
                 let key = field.as_str().unwrap_or("");
@@ -56,7 +61,39 @@ impl ToolSchema {
                 }
             }
         }
+
+        if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+            for (key, property_schema) in properties {
+                let Some(value) = input.get(key) else {
+                    continue;
+                };
+                let Some(expected) = property_schema.get("type").and_then(Value::as_str) else {
+                    continue;
+                };
+                validate_json_type(value, expected, &format!("field `{key}`"))?;
+            }
+        }
+
         Ok(())
+    }
+}
+
+fn validate_json_type(value: &Value, expected: &str, location: &str) -> Result<(), String> {
+    let matches = match expected {
+        "array" => value.is_array(),
+        "boolean" => value.is_boolean(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "null" => value.is_null(),
+        "number" => value.is_number(),
+        "object" => value.is_object(),
+        "string" => value.is_string(),
+        _ => true,
+    };
+
+    if matches {
+        Ok(())
+    } else {
+        Err(format!("{location} must be of type {expected}"))
     }
 }
 
@@ -71,5 +108,50 @@ mod tests {
             .validate(&serde_json::json!({"command": "ls"}))
             .is_ok());
         assert!(schema.validate(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn rejects_incorrect_required_field_type() {
+        let schema = ToolSchema::simple("echo", "Echo a message", &["message"]);
+        assert_eq!(
+            schema.validate(&serde_json::json!({"message": 42})),
+            Err("field `message` must be of type string".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_non_object_input() {
+        let schema = ToolSchema::simple("echo", "Echo a message", &["message"]);
+        assert_eq!(
+            schema.validate(&serde_json::json!("hello")),
+            Err("input must be of type object".to_string())
+        );
+    }
+
+    #[test]
+    fn validates_present_optional_fields_without_requiring_them() {
+        let schema = ToolSchema {
+            name: "grep".to_string(),
+            description: "Search files".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "recursive": {"type": "boolean"}
+                },
+                "required": ["pattern"]
+            }),
+        };
+
+        assert!(schema
+            .validate(&serde_json::json!({"pattern": "needle"}))
+            .is_ok());
+        assert!(schema
+            .validate(&serde_json::json!({"pattern": "needle", "recursive": true}))
+            .is_ok());
+        assert_eq!(
+            schema.validate(&serde_json::json!({"pattern": "needle", "recursive": "yes"})),
+            Err("field `recursive` must be of type boolean".to_string())
+        );
     }
 }

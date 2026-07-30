@@ -671,6 +671,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registry_rejects_non_string_echo_message() {
+        let registry = crate::registry::ToolRegistry::new();
+        registry.register(EchoTool);
+
+        let out = registry.call("echo", json!({"message": 42})).await;
+
+        assert!(out.is_error);
+        assert!(
+            out.content
+                .contains("field `message` must be of type string"),
+            "expected schema type error, got: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_wrong_content_type_does_not_touch_files() {
+        let _scope = enter_test_fs_scope().await;
+        std::fs::write("existing.txt", "preserve me").expect("seed existing file");
+        let registry = crate::registry::ToolRegistry::new();
+        registry.register(WriteFileTool);
+
+        let create = registry
+            .call("write_file", json!({"path": "new.txt", "content": 42}))
+            .await;
+        let overwrite = registry
+            .call("write_file", json!({"path": "existing.txt", "content": 42}))
+            .await;
+
+        assert!(create.is_error);
+        assert!(overwrite.is_error);
+        assert!(!Path::new("new.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string("existing.txt").expect("read existing file"),
+            "preserve me"
+        );
+    }
+
+    #[tokio::test]
     async fn write_file_requires_read_before_overwrite() {
         let _scope = enter_test_fs_scope().await;
         std::fs::write("existing.txt", "before").expect("seed existing file");
