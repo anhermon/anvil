@@ -291,12 +291,18 @@ impl ToolHandler for ReadFileTool {
 }
 
 /// Executes a shell command and returns stdout/stderr.
-/// Security: only commands whose first token appears in `ALLOWED_COMMANDS` are permitted.
+///
+/// Only commands whose first token appears in `ALLOWED_COMMANDS` are permitted.
+/// This is a guard rail against accidental damage, **not** a security boundary:
+/// `bash` is itself on the list, so `bash -c '<anything>'` passes the check. It
+/// is kept because it catches the common accidents cheaply; it is deliberately
+/// not made configurable, because a knob would imply a containment property this
+/// gate does not have. Run untrusted goals in a sandbox, not behind this list.
 pub struct BashExecTool;
 
 const ALLOWED_COMMANDS: &[&str] = &[
     "cargo", "rustfmt", "rustc", "git", "ls", "cat", "echo", "pwd", "env", "which", "grep", "bash",
-    "curl", "jq",
+    "curl", "jq", "python3", "python", "pytest",
 ];
 
 fn sandbox_violation_hint(command: &str, stderr: &str) -> Option<String> {
@@ -601,6 +607,21 @@ mod tests {
         );
     }
 
+    /// Without `python3` on the allowlist an edit-build-fix loop is Rust-only.
+    #[tokio::test]
+    async fn bash_exec_python3_allowed() {
+        let tool = BashExecTool;
+        let out = tool
+            .call(json!({"command": "python3 -c 'print(7*6)'"}))
+            .await;
+        assert!(!out.is_error, "unexpected error: {}", out.content);
+        assert!(
+            out.content.contains("42"),
+            "expected 42 in: {}",
+            out.content
+        );
+    }
+
     #[tokio::test]
     async fn bash_exec_cargo_version_allowed() {
         let tool = BashExecTool;
@@ -647,7 +668,7 @@ mod tests {
     async fn bash_exec_rejects_non_allowlisted_command_after_env_assignments() {
         let tool = BashExecTool;
         let out = tool
-            .call(json!({"command": "FOO=bar python -c 'print(1)'"}))
+            .call(json!({"command": "FOO=bar rm -rf /tmp/nope"}))
             .await;
         assert!(out.is_error, "expected non-allowlisted command to fail");
         assert!(

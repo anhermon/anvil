@@ -56,7 +56,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match cli.command {
-        Commands::Run(args) => commands::run::execute(args).await,
+        Commands::Run(args) => {
+            // A run that never finished must not report success to an unattended
+            // caller, so the terminal session status picks the exit code.
+            let status = commands::run::execute(args).await?;
+            let code = status.exit_code();
+            if code != 0 {
+                std::io::Write::flush(&mut std::io::stdout())?;
+                std::process::exit(code);
+            }
+            Ok(())
+        }
         Commands::Chat(args) => commands::chat::execute(args).await,
         Commands::Config(args) => commands::config::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,

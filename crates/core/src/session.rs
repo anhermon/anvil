@@ -20,8 +20,40 @@ pub struct Session {
 pub enum SessionStatus {
     Running,
     Done,
+    /// The loop hit its iteration cap before the agent ended its turn. The goal
+    /// was *not* reported complete — this is an unambiguous, harness-observable
+    /// failure.
+    MaxIterations,
     Failed,
     Cancelled,
+}
+
+impl SessionStatus {
+    /// Stable lowercase name, used as the machine-readable `outcome` field.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::MaxIterations => "max_iterations",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    /// Process exit code for a finished run.
+    ///
+    /// `0` only when the agent ended its own turn (`Done`). Note this says the
+    /// agent *finished*, not that the goal was actually achieved — the harness
+    /// cannot verify the latter.
+    #[must_use]
+    pub fn exit_code(&self) -> i32 {
+        if *self == Self::Done {
+            0
+        } else {
+            2
+        }
+    }
 }
 
 impl Session {

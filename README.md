@@ -26,7 +26,7 @@ Only for the things those tools structurally can't do:
 - **It runs with no network and no account.** One static binary plus Ollama. Air-gapped machines, and zero marginal cost per run.
 - **No language runtime to install.** `cargo install` once; there is no `node_modules`, no venv.
 - **It is a library, not just a CLI.** The agent loop, tool registry and memory store are ordinary Rust crates you can embed in your own program.
-- **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result.
+- **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result. `anvil run` exits non-zero when the run did not finish — see [Exit codes](#exit-codes).
 
 Where it does **not** compete: interactive day-to-day coding. Against a frontier model those tools are far faster and far more capable. Measured on a local 9.6 GB model (`gemma4`, M5, fresh `$HOME` per run so episodic memory cannot leak between them): a one-line fix verified by re-running `cargo test` takes a median of 55s and landed 9 times out of 9. A fix spanning two files and two bugs takes a median of 2m44s and landed 5 times out of 7 — twice it did not, and one of those reported success over a still-failing test suite.
 
@@ -129,6 +129,9 @@ anvil run --provider echo --goal "continue the work" --session myproject
 # Batch-evaluate against a JSONL suite of {"goal":"...","expected":"..."} lines
 anvil eval --cases cases.jsonl --provider echo
 
+# Raise or remove the iteration cap for this run (0 = unlimited)
+anvil run --provider ollama --model gemma4 --goal "fix the failing test" --max-iterations 80
+
 # Memory
 anvil memory search "rust async" --limit 10
 anvil memory recent myproject --limit 20     # session name or UUID
@@ -139,6 +142,34 @@ anvil auth status
 ```
 
 `anvil --help` and `anvil <command> --help` are authoritative.
+
+### Exit codes
+
+`anvil run` reports its outcome so an unattended caller can branch on it:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | The agent ended its own turn — it believes it is finished. |
+| `1` | The run aborted: provider error, bad config, unreachable Ollama, I/O failure. |
+| `2` | The run stopped without the agent finishing. Today the only cause is hitting the `--max-iterations` cap. |
+
+Under `--json-output` the same outcome is on the terminal `result` event, so you do not have to shell out to read `$?`:
+
+```json
+{"type":"result","part":{"text":"…","isError":true,"outcome":"max_iterations","sessionId":"…","model":"gemma4"}}
+```
+
+`outcome` is one of `done`, `max_iterations`, `failed`, `cancelled`; `isError` is true for everything except `done`.
+
+**What exit code 0 does *not* mean.** It means the model stopped and said it was done — not that the goal was achieved. In measured runs against a local model, a session ended with `cargo test` still red while the final message claimed success and rationalised the remaining failure away. Anvil does not attempt to detect that: it has no ground truth for an arbitrary natural-language goal, and guessing from the wording of the final message would produce a confidently wrong exit code, which is worse than an honestly ambiguous `0`. Two related cases are also deliberately left as `0`: an agent that gives up in prose without a tool call, and a provider that reports `stop_reason=tool_use` with no tool-use blocks — both are indistinguishable from a legitimate finish from inside the loop.
+
+**If you need to know whether the goal was met, assert it yourself** — run the check outside anvil and branch on *that*:
+
+```bash
+HOME=$(mktemp -d) anvil run --provider ollama --model gemma4 --json-output \
+  --goal "fix the failing test in src/lib.rs" || exit 1   # catches cap exhaustion and hard errors
+cargo test                                                 # your ground truth for "it actually worked"
+```
 
 ---
 
@@ -173,7 +204,8 @@ Tools registered in the shipped binary: `echo`, `read_file`, `write_file`, `grep
 
 Limits worth knowing before you hit them:
 
-- **`bash` commands time out after 30 seconds** and are restricted to an allowlist (`cargo`, `git`, `ls`, `cat`, `grep`, `curl`, `jq`, …). A cold `cargo build` on a non-trivial project will exceed this.
+- **`bash` commands time out after 30 seconds** and are restricted to a hardcoded allowlist (`cargo`, `rustc`, `rustfmt`, `git`, `python3`, `python`, `pytest`, `ls`, `cat`, `echo`, `pwd`, `env`, `which`, `grep`, `bash`, `curl`, `jq`). A cold `cargo build` on a non-trivial project will exceed the timeout. The allowlist is a guard rail against accidental damage, **not** a sandbox: `bash` is on it, so `bash -c '<anything>'` passes the check. It is not configurable, because a config knob would advertise a containment property this gate does not have — if you are running untrusted goals, isolate the process.
+- **The iteration cap defaults to 50** (`agent.max_iterations` in the config; `--max-iterations` overrides it, `0` means unlimited). On a local model a two-file fix has been measured at up to 10 iterations, so the old cap of 10 was a coin flip. Hitting the cap is a failure and exits `2`.
 - **`write_file` requires a prior `read_file`** of that path in the same session, and refuses to write if the file changed since that read. Creating a new file is exempt.
 - **Paths are relative only** — absolute paths and `..` are rejected. Anvil operates on the current working directory.
 

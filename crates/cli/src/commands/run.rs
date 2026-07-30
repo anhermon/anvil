@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use clap::Args;
 use harness_core::config::Config;
+use harness_core::session::SessionStatus;
 use harness_memory::MemoryDb;
 use indicatif::ProgressBar;
 
@@ -29,17 +30,22 @@ pub struct RunArgs {
     #[arg(long)]
     pub session: Option<String>,
 
-    /// Override the maximum number of agent iterations (default: 10).
+    /// Override the maximum number of agent iterations.
+    /// Defaults to `agent.max_iterations` from the config (50).
     /// Set to 0 for unlimited.
-    #[arg(long, default_value_t = 10)]
-    pub max_iterations: usize,
+    #[arg(long)]
+    pub max_iterations: Option<usize>,
 
     /// Emit structured NDJSON events to stdout instead of human-readable terminal output.
     ///
     /// Each line is a JSON object with a `type` field:
     ///   {"type":"text",     "part":{"text":"..."}}
     ///   {"`type":"tool_use`", "part":{"tool":"bash","callID":"...","state":{"status":"completed","input":{...},"output":"..."}}}
-    ///   {"type":"result",   "part":{"text":"...","isError":false,"sessionId":"..."}}
+    ///   {"type":"result",   "part":{"text":"...","isError":false,"outcome":"done","sessionId":"..."}}
+    ///
+    /// `outcome` is the machine-readable run status: `done` when the agent ended its
+    /// own turn, `max_iterations` when the loop hit `--max-iterations` first. `isError`
+    /// is true for every outcome other than `done`, and the process then exits 2.
     ///
     /// Use this flag when calling `anvil run` from a machine-readable context (e.g. Paperclip adapter).
     #[arg(long)]
@@ -219,12 +225,13 @@ impl UiHook for JsonHook {
         }));
     }
 
-    fn on_result(&self, text: &str, is_error: bool, session_id: &str) {
+    fn on_result(&self, text: &str, session_id: &str, status: SessionStatus) {
         Self::emit(&serde_json::json!({
             "type": "result",
             "part": {
                 "text": text,
-                "isError": is_error,
+                "isError": status != SessionStatus::Done,
+                "outcome": status.as_str(),
                 "sessionId": session_id,
                 "model": self.model,
             }
@@ -234,9 +241,24 @@ impl UiHook for JsonHook {
 
 // ── Command entry point ───────────────────────────────────────────────────────
 
+/// Resolve the iteration cap for this run: the `--max-iterations` flag when
+/// given, otherwise `agent.max_iterations` from config. `0` means unlimited in
+/// both places.
+pub(crate) fn resolve_max_iterations(flag: Option<usize>, config_value: usize) -> usize {
+    match flag.unwrap_or(config_value) {
+        0 => usize::MAX,
+        n => n,
+    }
+}
+
+/// Run the agent and return the terminal session status.
+///
+/// The caller maps that status to a process exit code via
+/// [`SessionStatus::exit_code`] — a run that never finished must not look like
+/// a success to an unattended caller.
 // Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
 #[allow(clippy::too_many_lines)]
-pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
+pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
     let config = Config::load()?;
     let resolved = provider::resolve(&config, &args.provider)?;
     let backend = resolved.backend;
@@ -245,7 +267,15 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
     let memory = Arc::new(MemoryDb::open(&config.memory.db_path).await?);
 
-    if args.stream {
+    let opts = RunOptions {
+        session_name: args.session.clone(),
+        max_iterations: Some(resolve_max_iterations(
+            args.max_iterations,
+            config.agent.max_iterations,
+        )),
+    };
+
+    let status = if args.stream {
         // Streaming mode: run through the Agent loop (with tools) using CliHook.
         let hook = CliHook::new();
         let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone())
@@ -253,15 +283,6 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
         ui::print_banner();
         ui::print_session_header("stream", &model, &backend);
-
-        let opts = RunOptions {
-            session_name: args.session.clone(),
-            max_iterations: if args.max_iterations == 0 {
-                Some(usize::MAX)
-            } else {
-                Some(args.max_iterations)
-            },
-        };
 
         let session = agent.run_with_options(&args.goal, opts).await?;
 
@@ -275,22 +296,14 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
         }
 
         println!("Streaming complete.");
+        session.status
     } else if args.json_output {
         // JSON output mode: emit NDJSON events to stdout, no terminal UI.
         let hook = JsonHook::new(&model);
         let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone())
             .with_hook(Arc::clone(&hook) as Arc<dyn UiHook>);
 
-        let opts = RunOptions {
-            session_name: args.session.clone(),
-            max_iterations: if args.max_iterations == 0 {
-                Some(usize::MAX)
-            } else {
-                Some(args.max_iterations)
-            },
-        };
-
-        agent.run_with_options(&args.goal, opts).await?;
+        agent.run_with_options(&args.goal, opts).await?.status
     } else {
         // Default terminal UI mode.
         let hook = CliHook::new();
@@ -305,15 +318,6 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
             eprintln!("  session name: {sname}\n");
         }
 
-        let opts = RunOptions {
-            session_name: args.session.clone(),
-            max_iterations: if args.max_iterations == 0 {
-                Some(usize::MAX)
-            } else {
-                Some(args.max_iterations)
-            },
-        };
-
         let t0 = Instant::now();
         let session = agent.run_with_options(&args.goal, opts).await?;
         let elapsed_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -324,7 +328,39 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
         eprintln!("  session {} | status {:?}", session.id, session.status);
+        session.status
+    };
+
+    if status == SessionStatus::MaxIterations {
+        eprintln!(
+            "error: agent stopped at the --max-iterations cap without finishing its goal \
+             (outcome: {}, exit code {})",
+            status.as_str(),
+            status.exit_code()
+        );
     }
 
-    Ok(())
+    Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_max_iterations, SessionStatus};
+
+    #[test]
+    fn flag_overrides_config_and_zero_means_unlimited() {
+        assert_eq!(resolve_max_iterations(Some(3), 50), 3);
+        assert_eq!(resolve_max_iterations(None, 50), 50);
+        assert_eq!(resolve_max_iterations(Some(0), 50), usize::MAX);
+        assert_eq!(resolve_max_iterations(None, 0), usize::MAX);
+    }
+
+    #[test]
+    fn only_a_finished_agent_turn_exits_zero() {
+        assert_eq!(SessionStatus::Done.exit_code(), 0);
+        assert_eq!(SessionStatus::MaxIterations.exit_code(), 2);
+        assert_eq!(SessionStatus::Failed.exit_code(), 2);
+        assert_eq!(SessionStatus::Cancelled.exit_code(), 2);
+        assert_eq!(SessionStatus::MaxIterations.as_str(), "max_iterations");
+    }
 }
