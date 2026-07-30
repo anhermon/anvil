@@ -26,7 +26,7 @@ Only for the things those tools structurally can't do:
 - **It runs with no network and no account.** One static binary plus Ollama. Air-gapped machines, and zero marginal cost per run.
 - **No language runtime to install.** `cargo install` once; there is no `node_modules`, no venv.
 - **It is a library, not just a CLI.** The agent loop, tool registry and memory store are ordinary Rust crates you can embed in your own program.
-- **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result. `anvil run` exits non-zero when the run did not finish — see [Exit codes](#exit-codes).
+- **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result. `anvil run` exits non-zero when the run did not finish, and `--verify "<your test command>"` makes it exit non-zero when the agent *claims* it finished but your command disagrees — see [Exit codes](#exit-codes).
 
 Where it does **not** compete: interactive day-to-day coding. Against a frontier model those tools are far faster and far more capable. Measured on a local 9.6 GB model (`gemma4`, M5, fresh `$HOME` per run so episodic memory cannot leak between them): a one-line fix verified by re-running `cargo test` takes a median of 55s and landed 9 times out of 9. A fix spanning two files and two bugs takes a median of 2m44s and landed 5 times out of 7 — twice it did not, and one of those reported success over a still-failing test suite.
 
@@ -152,9 +152,10 @@ anvil auth status
 
 | Exit code | Meaning |
 |-----------|---------|
-| `0` | The agent ended its own turn — it believes it is finished. |
+| `0` | The agent ended its own turn, and `--verify` passed if you supplied it. |
 | `1` | The run aborted: provider error, bad config, unreachable Ollama, I/O failure. |
 | `2` | The run stopped without the agent finishing. Today the only cause is hitting the `--max-iterations` cap. |
+| `3` | The agent finished and claimed success, but the `--verify` command exited non-zero. |
 
 Under `--json-output` the same outcome is on the terminal `result` event, so you do not have to shell out to read `$?`:
 
@@ -162,17 +163,28 @@ Under `--json-output` the same outcome is on the terminal `result` event, so you
 {"type":"result","part":{"text":"…","isError":true,"outcome":"max_iterations","sessionId":"…","model":"gemma4"}}
 ```
 
-`outcome` is one of `done`, `max_iterations`, `failed`, `cancelled`; `isError` is true for everything except `done`.
+`outcome` is one of `done`, `max_iterations`, `verification_failed`, `failed`, `cancelled`; `isError` is true for everything except `done`.
 
-**What exit code 0 does *not* mean.** It means the model stopped and said it was done — not that the goal was achieved. In measured runs against a local model, a session ended with `cargo test` still red while the final message claimed success and rationalised the remaining failure away. Anvil does not attempt to detect that: it has no ground truth for an arbitrary natural-language goal, and guessing from the wording of the final message would produce a confidently wrong exit code, which is worse than an honestly ambiguous `0`. Two related cases are also deliberately left as `0`: an agent that gives up in prose without a tool call, and a provider that reports `stop_reason=tool_use` with no tool-use blocks — both are indistinguishable from a legitimate finish from inside the loop.
-
-**If you need to know whether the goal was met, assert it yourself** — run the check outside anvil and branch on *that*:
+**`--verify` is how you get a trustworthy exit code.** Without it, exit `0` means only that the model stopped and said it was done — not that the goal was achieved. Measured on a local model over 8 runs of a two-file/two-bug task, the run reported `done` every time and was wrong twice: 25% false positives, one of them describing in confident detail a fix to a file it had never touched. Anvil will never guess from the wording of a final message whether the goal was met; that is exactly the failure being described. Instead, give it your ground truth:
 
 ```bash
-HOME=$(mktemp -d) anvil run --provider ollama --model gemma4 --json-output \
-  --goal "fix the failing test in src/lib.rs" || exit 1   # catches cap exhaustion and hard errors
-cargo test                                                 # your ground truth for "it actually worked"
+anvil run --provider ollama --model gemma4 \
+  --goal "fix the failing test in src/lib.rs" \
+  --verify "cargo test"
 ```
+
+The command runs in the working directory — the same one the agent's own bash calls run in — once the agent ends its turn believing it is done. If it exits non-zero the run reports `verification_failed` and exits `3`, and the command's exit code and output are printed to stderr and attached to the JSON result event:
+
+```json
+{"type":"result","part":{"isError":true,"outcome":"verification_failed",
+ "verification":{"exitCode":101,"output":"…test result: FAILED. 1 passed; 1 failed…"},"…":"…"}}
+```
+
+This supersedes the older advice to run `anvil run … || exit 1` and then your own test command: the check now runs inside the same invocation, and `$?` alone is enough to branch on. It also closes two gaps that a caller cannot see from outside — an agent that gives up in prose without a tool call, and a provider that reports `stop_reason=tool_use` with no tool-use blocks, both of which end the run as `done`.
+
+Two things `--verify` is not. It does **not** retry: a failed verification terminates and reports, it does not feed the failure back into the agent loop for another attempt. And it is **not** filtered through the bash tool's command allowlist — that allowlist constrains commands the *model* chose, while `--verify` is your own shell command from your own command line, so it is run directly via `sh -c`.
+
+Without `--verify`, exit `0` still carries its old, weaker meaning: the model stopped. Treat it accordingly.
 
 ---
 

@@ -60,8 +60,11 @@ pub struct RunArgs {
     ///   {"type":"result",   "part":{"text":"...","isError":false,"outcome":"done","sessionId":"..."}}
     ///
     /// `outcome` is the machine-readable run status: `done` when the agent ended its
-    /// own turn, `max_iterations` when the loop hit `--max-iterations` first. `isError`
-    /// is true for every outcome other than `done`, and the process then exits 2.
+    /// own turn, `max_iterations` when the loop hit `--max-iterations` first,
+    /// `verification_failed` when `--verify` exited non-zero. `isError` is true for
+    /// every outcome other than `done`, and the process then exits non-zero (see the
+    /// Exit codes section of the README). With `--verify`, the result event also
+    /// carries `"verification":{"exitCode":N,"output":"..."}`.
     ///
     /// Use this flag when calling `anvil run` from a machine-readable context (e.g. Paperclip adapter).
     #[arg(long)]
