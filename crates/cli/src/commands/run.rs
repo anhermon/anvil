@@ -1,10 +1,11 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Args;
 use harness_core::{
     config::Config,
     provider::Provider,
+    providers::ollama::DEFAULT_OLLAMA_TIMEOUT_SECS,
     providers::{ClaudeCodeProvider, ClaudeProvider, OllamaProvider},
 };
 use harness_memory::MemoryDb;
@@ -12,6 +13,13 @@ use indicatif::ProgressBar;
 
 use crate::agent::{Agent, RunOptions, UiHook};
 use crate::ui;
+
+fn parse_positive_timeout(value: &str) -> Result<u64, String> {
+    match value.parse::<u64>() {
+        Ok(seconds) if seconds > 0 => Ok(seconds),
+        _ => Err("timeout must be a positive number of seconds".to_string()),
+    }
+}
 
 #[derive(Args)]
 pub struct RunArgs {
@@ -26,6 +34,15 @@ pub struct RunArgs {
     /// Model identifier override (e.g. "gemma4:e2b")
     #[arg(long, env = "HARNESS_MODEL")]
     pub model: Option<String>,
+
+    /// Maximum seconds to wait for each Ollama request
+    #[arg(
+        long,
+        env = "ANVIL_OLLAMA_TIMEOUT_SECS",
+        default_value_t = DEFAULT_OLLAMA_TIMEOUT_SECS,
+        value_parser = parse_positive_timeout
+    )]
+    pub ollama_timeout_secs: u64,
 
     /// Stream response tokens to stdout as they arrive
     #[arg(long)]
@@ -291,8 +308,18 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
                 .base_url
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
-            tracing::info!(model = %model, base_url = %base_url, "using OllamaProvider");
-            let mut p = OllamaProvider::new(base_url, &model, config.provider.max_tokens);
+            tracing::info!(
+                model = %model,
+                base_url = %base_url,
+                timeout_secs = args.ollama_timeout_secs,
+                "using OllamaProvider"
+            );
+            let mut p = OllamaProvider::with_timeout(
+                base_url,
+                &model,
+                config.provider.max_tokens,
+                Duration::from_secs(args.ollama_timeout_secs),
+            );
             if let Some(t) = args.temperature {
                 p = p.with_temperature(t);
             }
@@ -388,4 +415,16 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_positive_timeout;
+
+    #[test]
+    fn ollama_timeout_must_be_positive() {
+        assert_eq!(parse_positive_timeout("45"), Ok(45));
+        assert!(parse_positive_timeout("0").is_err());
+        assert!(parse_positive_timeout("not-a-number").is_err());
+    }
 }

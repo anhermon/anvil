@@ -56,6 +56,9 @@ ollama pull qwen2.5:3b-instruct
 anvil run --provider ollama --model qwen2.5:3b-instruct --goal "Say hello in exactly three words."
 ```
 
+Ollama requests time out after 120 seconds by default. For a large model that needs longer to load,
+pass `--ollama-timeout-secs 300` or set `ANVIL_OLLAMA_TIMEOUT_SECS=300`.
+
 ### Choosing a local model
 
 Tool-calling ability matters far more than speed here.
