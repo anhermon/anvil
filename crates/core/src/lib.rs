@@ -7,3 +7,4 @@ pub mod message;
 pub mod provider;
 pub mod providers;
 pub mod session;
+pub mod toolcall_text;

@@ -56,6 +56,9 @@ ollama pull qwen2.5:3b-instruct
 anvil run --provider ollama --model qwen2.5:3b-instruct --goal "Say hello in exactly three words."
 ```
 
+Ollama requests time out after 120 seconds by default. For a large model that needs longer to load,
+both `run` and `chat` accept `--ollama-timeout-secs 300`, or set `ANVIL_OLLAMA_TIMEOUT_SECS=300`.
+
 ### Choosing a local model
 
 Tool-calling ability matters far more than speed here.
@@ -72,6 +75,14 @@ No LLM at all? The `echo` provider mirrors input back and is what the test suite
 ```bash
 anvil run --provider echo --goal "hello"
 ```
+
+Want to keep talking without starting a new command for every prompt?
+
+```bash
+anvil chat --provider echo --session myproject
+```
+
+Chat keeps every prompt in the same named session. Type `/exit` or press Ctrl-D to leave.
 
 ---
 
@@ -102,6 +113,9 @@ Adding a provider: implement one async trait in `crates/core/src/providers/`.
 ```bash
 # Run an agent session
 anvil run --provider ollama --model qwen2.5:3b-instruct --goal "Summarise the current directory"
+
+# Start an interactive chat; omit --session to generate a resumable session name
+anvil chat --provider ollama --model qwen2.5:3b-instruct --session myproject
 
 # Stream tokens as they arrive
 anvil run --provider echo --goal "hello" --stream
