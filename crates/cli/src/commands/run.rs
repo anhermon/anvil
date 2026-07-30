@@ -391,6 +391,9 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
     // Bound outside the branch: the JSON result event is emitted only after the
     // verification gate has had its say.
     let mut json_hook: Option<Arc<JsonHook>> = None;
+    // Likewise the terminal status line: printing it before the gate would report
+    // `Done` for a run that is about to exit 3.
+    let mut terminal_session_id: Option<String> = None;
 
     let status = if args.stream {
         // Streaming mode: run through the Agent loop (with tools) using CliHook.
@@ -445,7 +448,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
         }
 
         ui::print_session_summary(0, 0, session.iteration, elapsed_ms);
-        eprintln!("  session {} | status {:?}", session.id, session.status);
+        terminal_session_id = Some(session.id.to_string());
         session.status
     };
 
@@ -459,6 +462,10 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
     }
 
     let (status, verification) = gate_on_verification(status, args.verify.as_deref())?;
+
+    if let Some(id) = terminal_session_id {
+        eprintln!("  session {id} | status {status:?}");
+    }
 
     if let Some(hook) = json_hook {
         hook.finish(&status, verification.as_ref());
