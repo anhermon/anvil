@@ -48,6 +48,9 @@ anvil --help
 ## Quick start
 
 The verified end-to-end path is a local [Ollama](https://ollama.com) model — no API key, no network.
+Install Ollama first if you do not have it (`brew install ollama`, or a package from
+[ollama.com/download](https://ollama.com/download)); the commands below assume the `ollama`
+binary is on your `PATH`. To try Anvil with no model at all, skip to the `echo` provider below.
 
 ```bash
 ollama serve
