@@ -36,6 +36,22 @@ pub struct RunArgs {
     #[arg(long)]
     pub max_iterations: Option<usize>,
 
+    /// Shell command that must exit 0 for the run to report success.
+    ///
+    /// Run in the working directory after the agent ends its turn believing it is
+    /// done. On a non-zero exit the run reports `verification_failed` (exit code 3)
+    /// instead of `done`, and the command's exit code and output are printed to
+    /// stderr and attached to the `--json-output` result event.
+    ///
+    /// This is *your* shell on *your* machine, not something the model chose, so it
+    /// is executed directly via `sh -c` and is deliberately **not** subject to the
+    /// bash tool's command allowlist (which exists to constrain model-generated
+    /// commands).
+    ///
+    /// Example: anvil run --goal "fix the failing test" --verify "cargo test"
+    #[arg(long, value_name = "COMMAND")]
+    pub verify: Option<String>,
+
     /// Emit structured NDJSON events to stdout instead of human-readable terminal output.
     ///
     /// Each line is a JSON object with a `type` field:
@@ -139,6 +155,11 @@ struct JsonHook {
     /// Pending tool call names keyed by callID — used to re-attach the name when
     /// emitting the combined `tool_use` event with both input and output.
     pending: std::sync::Mutex<std::collections::HashMap<String, (String, serde_json::Value)>>,
+    /// Final `(text, session_id)` captured from the agent loop. The terminal
+    /// `result` event is held back until [`JsonHook::finish`] so `--verify` can
+    /// still change the outcome — a single result event, emitted once, with the
+    /// gated status.
+    result: std::sync::Mutex<Option<(String, String)>>,
 }
 
 impl JsonHook {
@@ -146,7 +167,34 @@ impl JsonHook {
         Arc::new(Self {
             model: model.into(),
             pending: std::sync::Mutex::new(std::collections::HashMap::new()),
+            result: std::sync::Mutex::new(None),
         })
+    }
+
+    /// Emit the terminal `result` event with the final (post-verification) status.
+    fn finish(&self, status: &SessionStatus, verification: Option<&Verification>) {
+        let Some((text, session_id)) = self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        else {
+            return; // the loop errored out before completing; nothing to report
+        };
+        let mut part = serde_json::json!({
+            "text": text,
+            "isError": *status != SessionStatus::Done,
+            "outcome": status.as_str(),
+            "sessionId": session_id,
+            "model": self.model,
+        });
+        if let (Some(v), Some(obj)) = (verification, part.as_object_mut()) {
+            obj.insert(
+                "verification".into(),
+                serde_json::json!({ "exitCode": v.code, "output": v.output }),
+            );
+        }
+        Self::emit(&serde_json::json!({ "type": "result", "part": part }));
     }
 
     fn emit(obj: &serde_json::Value) {
@@ -226,17 +274,79 @@ impl UiHook for JsonHook {
     }
 
     fn on_result(&self, text: &str, session_id: &str, status: SessionStatus) {
-        Self::emit(&serde_json::json!({
-            "type": "result",
-            "part": {
-                "text": text,
-                "isError": status != SessionStatus::Done,
-                "outcome": status.as_str(),
-                "sessionId": session_id,
-                "model": self.model,
-            }
-        }));
+        // Held back until `finish`; `status` here is the agent loop's view, which
+        // `--verify` may still override.
+        let _ = status;
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((text.to_string(), session_id.to_string()));
     }
+}
+
+// ── Verification gate ─────────────────────────────────────────────────────────
+
+/// Outcome of the operator-supplied `--verify` command.
+struct Verification {
+    code: i32,
+    /// Combined stdout+stderr, tail-truncated — the useful part of a test run's
+    /// output is at the end.
+    output: String,
+}
+
+/// How much verification output to keep and show.
+const VERIFY_OUTPUT_TAIL: usize = 4096;
+
+/// Run the verification command and gate `status` on it.
+///
+/// Only a run the agent itself considered finished is gated: `MaxIterations` and
+/// friends already carry a more specific reason and are passed through untouched.
+///
+/// The command is operator-supplied — it comes from this machine's own command
+/// line, not from the model — so it is executed directly via `sh -c` and is not
+/// filtered through the bash tool allowlist, which exists to constrain
+/// model-generated commands. It inherits the process working directory, the same
+/// one the bash tool runs the agent's own commands in.
+fn gate_on_verification(
+    status: SessionStatus,
+    verify: Option<&str>,
+) -> anyhow::Result<(SessionStatus, Option<Verification>)> {
+    let (Some(cmd), SessionStatus::Done) = (verify, &status) else {
+        return Ok((status, None));
+    };
+
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()?;
+    let code = out.status.code().unwrap_or(-1);
+    let mut output = String::from_utf8_lossy(&out.stdout).into_owned();
+    output.push_str(&String::from_utf8_lossy(&out.stderr));
+    if output.len() > VERIFY_OUTPUT_TAIL {
+        let start = output.len() - VERIFY_OUTPUT_TAIL;
+        let start = (start..output.len())
+            .find(|i| output.is_char_boundary(*i))
+            .unwrap_or(output.len());
+        output = format!("[…truncated…]\n{}", &output[start..]);
+    }
+
+    if code == 0 {
+        eprintln!("verification passed: `{cmd}` exited 0");
+        return Ok((status, Some(Verification { code, output })));
+    }
+
+    eprintln!(
+        "error: the agent reported it was finished, but verification failed.\n\
+         command: {cmd}\nexit code: {code}\noutcome: {} (exit code {})\n--- verification output ---\n{}",
+        SessionStatus::VerificationFailed.as_str(),
+        SessionStatus::VerificationFailed.exit_code(),
+        output.trim_end(),
+    );
+    Ok((
+        SessionStatus::VerificationFailed,
+        Some(Verification { code, output }),
+    ))
 }
 
 // ── Command entry point ───────────────────────────────────────────────────────
@@ -275,6 +385,10 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
         )),
     };
 
+    // Bound outside the branch: the JSON result event is emitted only after the
+    // verification gate has had its say.
+    let mut json_hook: Option<Arc<JsonHook>> = None;
+
     let status = if args.stream {
         // Streaming mode: run through the Agent loop (with tools) using CliHook.
         let hook = CliHook::new();
@@ -302,6 +416,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
         let hook = JsonHook::new(&model);
         let agent = Agent::new(Arc::clone(&provider), Arc::clone(&memory), config.clone())
             .with_hook(Arc::clone(&hook) as Arc<dyn UiHook>);
+        json_hook = Some(hook);
 
         agent.run_with_options(&args.goal, opts).await?.status
     } else {
@@ -340,12 +455,18 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<SessionStatus> {
         );
     }
 
+    let (status, verification) = gate_on_verification(status, args.verify.as_deref())?;
+
+    if let Some(hook) = json_hook {
+        hook.finish(&status, verification.as_ref());
+    }
+
     Ok(status)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_max_iterations, SessionStatus};
+    use super::{gate_on_verification, resolve_max_iterations, SessionStatus, VERIFY_OUTPUT_TAIL};
 
     #[test]
     fn flag_overrides_config_and_zero_means_unlimited() {
@@ -362,5 +483,75 @@ mod tests {
         assert_eq!(SessionStatus::Failed.exit_code(), 2);
         assert_eq!(SessionStatus::Cancelled.exit_code(), 2);
         assert_eq!(SessionStatus::MaxIterations.as_str(), "max_iterations");
+        // A finished-but-unverified run is distinguishable from one that never finished.
+        assert_eq!(SessionStatus::VerificationFailed.exit_code(), 3);
+        assert_eq!(
+            SessionStatus::VerificationFailed.as_str(),
+            "verification_failed"
+        );
+    }
+
+    /// The case this feature exists for: the agent ends its turn claiming success,
+    /// the operator's ground truth disagrees, and the run must not report `done`.
+    #[test]
+    fn a_claimed_success_that_fails_verification_is_not_done() {
+        let (status, v) = gate_on_verification(
+            SessionStatus::Done,
+            Some("echo 'test result: FAILED'; exit 7"),
+        )
+        .unwrap();
+
+        assert_eq!(status, SessionStatus::VerificationFailed);
+        assert_eq!(status.as_str(), "verification_failed");
+        assert_ne!(status.exit_code(), 0);
+
+        let v = v.expect("verification result is reported");
+        assert_eq!(v.code, 7);
+        assert!(v.output.contains("FAILED"), "output was {:?}", v.output);
+    }
+
+    #[test]
+    fn a_verified_success_stays_done_and_no_verify_is_a_no_op() {
+        let (status, v) = gate_on_verification(SessionStatus::Done, Some("exit 0")).unwrap();
+        assert_eq!(status, SessionStatus::Done);
+        assert_eq!(v.expect("reported").code, 0);
+
+        let (status, v) = gate_on_verification(SessionStatus::Done, None).unwrap();
+        assert_eq!(status, SessionStatus::Done);
+        assert!(v.is_none());
+    }
+
+    /// A run that never finished keeps its own, more specific outcome — we do not
+    /// bury `max_iterations` under a verification failure.
+    #[test]
+    fn an_unfinished_run_is_not_gated() {
+        let (status, v) =
+            gate_on_verification(SessionStatus::MaxIterations, Some("exit 1")).unwrap();
+        assert_eq!(status, SessionStatus::MaxIterations);
+        assert!(v.is_none());
+    }
+
+    #[test]
+    fn long_output_keeps_the_tail() {
+        let (_, v) = gate_on_verification(
+            SessionStatus::Done,
+            Some("head -c 20000 /dev/zero | tr '\\0' 'x'; echo THE-SUMMARY; exit 1"),
+        )
+        .unwrap();
+        let out = v.expect("reported").output;
+        assert!(out.contains("THE-SUMMARY"));
+        assert!(out.len() < VERIFY_OUTPUT_TAIL + 64, "len {}", out.len());
+    }
+
+    /// `--verify` runs in the process working directory — the same one the bash
+    /// tool gives the agent, so the agent's edits are what gets checked.
+    #[test]
+    fn verification_runs_in_the_working_directory() {
+        let (_, v) = gate_on_verification(SessionStatus::Done, Some("pwd")).unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(
+            v.expect("reported").output.trim(),
+            cwd.to_string_lossy().trim()
+        );
     }
 }

@@ -24,6 +24,10 @@ pub enum SessionStatus {
     /// was *not* reported complete — this is an unambiguous, harness-observable
     /// failure.
     MaxIterations,
+    /// The agent ended its turn believing it was done, but the operator-supplied
+    /// `--verify` command exited non-zero. The claim of success was not backed by
+    /// ground truth.
+    VerificationFailed,
     Failed,
     Cancelled,
 }
@@ -36,6 +40,7 @@ impl SessionStatus {
             Self::Running => "running",
             Self::Done => "done",
             Self::MaxIterations => "max_iterations",
+            Self::VerificationFailed => "verification_failed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
         }
@@ -43,15 +48,18 @@ impl SessionStatus {
 
     /// Process exit code for a finished run.
     ///
-    /// `0` only when the agent ended its own turn (`Done`). Note this says the
-    /// agent *finished*, not that the goal was actually achieved — the harness
-    /// cannot verify the latter.
+    /// `0` only when the agent ended its own turn (`Done`) *and* any `--verify`
+    /// command passed. Without `--verify`, `Done` says the agent *finished*, not
+    /// that the goal was achieved — the harness has no ground truth for that.
+    ///
+    /// `3` is reserved for `VerificationFailed` so a caller can distinguish
+    /// "the agent never finished" (`2`) from "it finished and was wrong" (`3`).
     #[must_use]
     pub fn exit_code(&self) -> i32 {
-        if *self == Self::Done {
-            0
-        } else {
-            2
+        match self {
+            Self::Done => 0,
+            Self::VerificationFailed => 3,
+            _ => 2,
         }
     }
 }
