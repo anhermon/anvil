@@ -19,15 +19,20 @@ pub struct ChatArgs {
     #[arg(long)]
     pub session: Option<String>,
 
-    /// Maximum agent iterations for each prompt (default: 10). Set to 0 for unlimited
-    #[arg(long, default_value_t = 10)]
-    pub max_iterations: usize,
+    /// Maximum agent iterations for each prompt.
+    /// Defaults to `agent.max_iterations` from the config (50). Set to 0 for unlimited
+    #[arg(long)]
+    pub max_iterations: Option<usize>,
 }
 
 pub async fn execute(args: ChatArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let resolved = provider::resolve(&config, &args.provider)?;
     let memory = Arc::new(MemoryDb::open(&config.memory.db_path).await?);
+    let max_iterations = crate::commands::run::resolve_max_iterations(
+        args.max_iterations,
+        config.agent.max_iterations,
+    );
     let session_name = args
         .session
         .unwrap_or_else(|| format!("chat-{}", Uuid::new_v4()));
@@ -47,7 +52,7 @@ pub async fn execute(args: ChatArgs) -> anyhow::Result<()> {
     run_chat_loop(
         &agent,
         &session_name,
-        args.max_iterations,
+        max_iterations,
         &mut reader,
         &mut writer,
     )
@@ -61,11 +66,6 @@ async fn run_chat_loop<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
 ) -> anyhow::Result<()> {
-    let max_iterations = if max_iterations == 0 {
-        usize::MAX
-    } else {
-        max_iterations
-    };
     let options = RunOptions {
         session_name: Some(session_name.to_string()),
         max_iterations: Some(max_iterations),

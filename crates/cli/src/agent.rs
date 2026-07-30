@@ -60,10 +60,11 @@ pub trait UiHook: Send + Sync {
     fn on_text(&self, text: &str) {
         let _ = text;
     }
-    /// Called at session completion with the final result text.
+    /// Called at session completion with the final result text and the terminal
+    /// session status (the machine-readable outcome of the run).
     /// Default: no-op.
-    fn on_result(&self, text: &str, is_error: bool, session_id: &str) {
-        let _ = (text, is_error, session_id);
+    fn on_result(&self, text: &str, session_id: &str, status: SessionStatus) {
+        let _ = (text, session_id, status);
     }
     /// Called once per completed provider turn with structural diagnostics.
     ///
@@ -300,11 +301,17 @@ impl Agent {
 
         loop {
             if session.iteration >= max_iter {
-                info!("max iterations reached");
+                warn!(
+                    max_iter,
+                    "max iterations reached without the agent finishing"
+                );
                 let last_text = session.messages.last().and_then(|m| m.text()).unwrap_or("");
-                self.hook
-                    .on_result(last_text, false, &session.id.to_string());
-                session.finish(SessionStatus::Done);
+                self.hook.on_result(
+                    last_text,
+                    &session.id.to_string(),
+                    SessionStatus::MaxIterations,
+                );
+                session.finish(SessionStatus::MaxIterations);
                 break;
             }
 
@@ -436,7 +443,7 @@ impl Agent {
 
                     // Notify hook that the session is complete.
                     self.hook
-                        .on_result(&final_text, false, &session.id.to_string());
+                        .on_result(&final_text, &session.id.to_string(), SessionStatus::Done);
 
                     session.finish(SessionStatus::Done);
                     break;
@@ -480,8 +487,11 @@ impl Agent {
                         );
                         let last_text =
                             session.messages.last().and_then(|m| m.text()).unwrap_or("");
-                        self.hook
-                            .on_result(last_text, false, &session.id.to_string());
+                        self.hook.on_result(
+                            last_text,
+                            &session.id.to_string(),
+                            SessionStatus::Done,
+                        );
                         session.finish(SessionStatus::Done);
                         break;
                     };
@@ -510,7 +520,16 @@ impl Agent {
                                 .to_string();
                             info!(sub_goal = %sub_goal, depth = self.depth, "spawning sub-agent");
                             match self.spawn_subagent(&sub_goal, &context).await {
-                                Ok(result) => harness_tools::ToolOutput::ok(result),
+                                Ok((result, SessionStatus::Done)) => {
+                                    harness_tools::ToolOutput::ok(result)
+                                }
+                                // A sub-agent that hit its own cap did not finish;
+                                // surface that as a tool error instead of passing its
+                                // partial text up as a success.
+                                Ok((result, status)) => harness_tools::ToolOutput::err(format!(
+                                    "sub-agent did not complete (outcome: {}); partial output: {result}",
+                                    status.as_str()
+                                )),
                                 Err(e) => {
                                     harness_tools::ToolOutput::err(format!("sub-agent error: {e}"))
                                 }
@@ -641,9 +660,13 @@ impl Agent {
 
     /// Spawn a nested sub-agent to handle a delegated goal.
     ///
-    /// Returns the sub-agent final response text, or an error if depth
-    /// exceeds [`MAX_SUBAGENT_DEPTH`].
-    async fn spawn_subagent(&self, goal: &str, context: &str) -> anyhow::Result<String> {
+    /// Returns the sub-agent final response text and its terminal status, or an
+    /// error if depth exceeds [`MAX_SUBAGENT_DEPTH`].
+    async fn spawn_subagent(
+        &self,
+        goal: &str,
+        context: &str,
+    ) -> anyhow::Result<(String, SessionStatus)> {
         if self.depth >= MAX_SUBAGENT_DEPTH {
             return Err(anyhow::anyhow!(
                 "sub-agent depth limit ({MAX_SUBAGENT_DEPTH}) reached -- cannot spawn further"
@@ -682,10 +705,11 @@ impl Agent {
         info!(
             depth = self.depth,
             result_len = result.len(),
+            status = session.status.as_str(),
             "sub-agent completed"
         );
 
-        Ok(result)
+        Ok((result, session.status))
     }
 }
 
@@ -834,7 +858,13 @@ mod tests {
 
         let session = agent.run("loop forever").await.unwrap();
 
-        assert_eq!(session.status, harness_core::session::SessionStatus::Done);
+        // A run stopped by the cap did not finish its goal: it must not report
+        // `Done` (which is what `anvil run` maps to exit code 0).
+        assert_eq!(
+            session.status,
+            harness_core::session::SessionStatus::MaxIterations
+        );
+        assert_eq!(session.status.exit_code(), 2);
         assert_eq!(session.iteration, 2);
     }
 
@@ -915,7 +945,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result, "context-aware result");
+        assert_eq!(
+            result,
+            (
+                "context-aware result".to_string(),
+                harness_core::session::SessionStatus::Done
+            )
+        );
     }
 
     #[tokio::test]
