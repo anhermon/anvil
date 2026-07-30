@@ -28,7 +28,7 @@ Only for the things those tools structurally can't do:
 - **It is a library, not just a CLI.** The agent loop, tool registry and memory store are ordinary Rust crates you can embed in your own program.
 - **`--json-output` is NDJSON**, so batch/unattended pipelines can parse every tool call and result.
 
-Where it does **not** compete: interactive day-to-day coding. Against a frontier model those tools are far faster and far more capable. On a local 9.6 GB model a single edit-build-fix task here takes roughly 3 minutes.
+Where it does **not** compete: interactive day-to-day coding. Against a frontier model those tools are far faster and far more capable. Measured on a local 9.6 GB model (`gemma4`, M5, fresh `$HOME` per run so episodic memory cannot leak between them): a one-line fix verified by re-running `cargo test` takes a median of 55s and landed 9 times out of 9. A fix spanning two files and two bugs takes a median of 2m44s and landed 5 times out of 7 — twice it did not, and one of those reported success over a still-failing test suite.
 
 ---
 
