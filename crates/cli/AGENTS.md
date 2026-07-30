@@ -34,8 +34,10 @@ Current loop (Phase 2 / v0 single-turn):
 Rules for modifying the loop:
 - **Always respect `max_iterations`.** This is the safety bound that prevents runaway agents. Do
   not add any code path that allows the loop to run longer than `max_iterations` turns.
-- When `max_iterations` is reached, set `session.finish(SessionStatus::Done)` and break. Do not
-  silently continue.
+- When `max_iterations` is reached, set `session.finish(SessionStatus::MaxIterations)` and break.
+  Do not silently continue, and do not use `Done` — `Done` means "the agent ended its own turn"
+  and is the only status that maps to exit code 0. Conflating the two is what made `anvil run`
+  return 0 for a run that never finished.
 - If `config.agent.max_iterations == 0`, treat it as unlimited (`usize::MAX`) — this is the
   current behaviour and must be preserved.
 - Every assistant turn must be persisted to `MemoryDb` as an `EpisodeKind::Turn` episode before
