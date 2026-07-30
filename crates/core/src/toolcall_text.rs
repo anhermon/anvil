@@ -306,7 +306,9 @@ mod tests {
 
     #[test]
     fn parses_well_formed_fenced_call() {
-        let calls = parse_text_tool_calls("Let me look:\n```json\n{\"name\":\"bash\",\"input\":{\"command\":\"ls\"}}\n```\n");
+        let calls = parse_text_tool_calls(
+            "Let me look:\n```json\n{\"name\":\"bash\",\"input\":{\"command\":\"ls\"}}\n```\n",
+        );
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "bash");
         assert_eq!(calls[0].input, json!({"command": "ls"}));
@@ -325,7 +327,9 @@ mod tests {
 
     #[test]
     fn parses_bare_json_object() {
-        let calls = parse_text_tool_calls("I will run {\"name\":\"bash\",\"parameters\":{\"command\":\"pwd\"}} now");
+        let calls = parse_text_tool_calls(
+            "I will run {\"name\":\"bash\",\"parameters\":{\"command\":\"pwd\"}} now",
+        );
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "bash");
         assert_eq!(calls[0].format, CallFormat::Bare);
@@ -335,7 +339,9 @@ mod tests {
     fn recovers_truncated_fence() {
         // The exact shape observed killing a baseline run: the model stopped
         // mid-fence, leaving the object unterminated.
-        let calls = parse_text_tool_calls("Here we go:\n```json\n{\"name\": \"bash\", \"input\": {\"command\": \"git status\"");
+        let calls = parse_text_tool_calls(
+            "Here we go:\n```json\n{\"name\": \"bash\", \"input\": {\"command\": \"git status\"",
+        );
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "bash");
         assert_eq!(calls[0].input, json!({"command": "git status"}));
@@ -375,8 +381,9 @@ mod tests {
 
     #[test]
     fn does_not_treat_brace_inside_string_as_structure() {
-        let calls =
-            parse_text_tool_calls("{\"name\":\"bash\",\"input\":{\"command\":\"awk '{print $1}' f\"}}");
+        let calls = parse_text_tool_calls(
+            "{\"name\":\"bash\",\"input\":{\"command\":\"awk '{print $1}' f\"}}",
+        );
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].input, json!({"command": "awk '{print $1}' f"}));
     }

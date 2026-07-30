@@ -333,8 +333,12 @@ impl Agent {
                 && recoveries_used < MAX_TEXT_CALL_RECOVERIES
             {
                 if let Some(text) = response.message.text() {
-                    let known: Vec<String> =
-                        self.tools.schemas().iter().map(|s| s.name.clone()).collect();
+                    let known: Vec<String> = self
+                        .tools
+                        .schemas()
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .collect();
                     let calls: Vec<_> = harness_core::toolcall_text::parse_text_tool_calls(text)
                         .into_iter()
                         .filter(|c| known.iter().any(|k| k == &c.name))
@@ -1185,7 +1189,9 @@ mod tests {
     #[tokio::test]
     async fn truncated_text_tool_call_is_recovered() {
         let provider = Arc::new(ScriptedProvider::new(vec![
-            end_turn_response("Here:\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\""),
+            end_turn_response(
+                "Here:\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\"",
+            ),
             end_turn_response("done"),
         ]));
 

@@ -345,11 +345,7 @@ impl Provider for OllamaProvider {
 impl OllamaProvider {
     // Long but linear: a single top-to-bottom flow; splitting it would only scatter state.
     #[allow(clippy::too_many_lines)]
-    async fn complete_once(
-        &self,
-        messages: &[Message],
-        tools: &[ToolDef],
-    ) -> Result<TurnResponse> {
+    async fn complete_once(&self, messages: &[Message], tools: &[ToolDef]) -> Result<TurnResponse> {
         let openai_tools = if tools.is_empty() {
             None
         } else {
