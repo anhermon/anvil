@@ -38,6 +38,10 @@ Rules for modifying the loop:
   Do not silently continue, and do not use `Done` — `Done` means "the agent ended its own turn"
   and is the only status that maps to exit code 0. Conflating the two is what made `anvil run`
   return 0 for a run that never finished.
+- `Done` is the agent's *claim* of success, never proof of it. The only ground truth in the
+  harness is the operator's `--verify` command, applied in `run.rs` after the loop returns
+  (`gate_on_verification`), which downgrades `Done` to `VerificationFailed` (exit code 3).
+  Never infer success or failure from the wording of the model's final message.
 - If `config.agent.max_iterations == 0`, treat it as unlimited (`usize::MAX`) — this is the
   current behaviour and must be preserved.
 - Every assistant turn must be persisted to `MemoryDb` as an `EpisodeKind::Turn` episode before
