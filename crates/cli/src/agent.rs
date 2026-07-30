@@ -21,6 +21,11 @@ use tracing::{debug, info, warn};
 /// Maximum sub-agent nesting depth to prevent infinite recursion.
 const MAX_SUBAGENT_DEPTH: usize = 4;
 
+/// How many times per run a tool call written as text may be recovered and
+/// executed. Bounded so a model that never uses the native channel still
+/// terminates instead of looping.
+const MAX_TEXT_CALL_RECOVERIES: usize = 3;
+
 /// Callback interface for terminal UI events emitted by the agent loop.
 ///
 /// The default no-op implementation is used for sub-agents and tests so they
@@ -60,10 +65,41 @@ pub trait UiHook: Send + Sync {
     fn on_result(&self, text: &str, is_error: bool, session_id: &str) {
         let _ = (text, is_error, session_id);
     }
+    /// Called once per completed provider turn with structural diagnostics.
+    ///
+    /// Exists so the failure taxonomy of a run is *measured* rather than inferred
+    /// from the rendered text. Default: no-op.
+    fn on_turn_diag(&self, diag: &TurnDiag) {
+        let _ = diag;
+    }
     /// Called while waiting for the provider to return; receives `[current/max]` label.
     fn on_thinking(&self, iteration: usize, max_iter: usize);
     /// Called when the provider has returned (end of thinking).
     fn on_thinking_done(&self);
+}
+
+/// Structural facts about one completed provider turn.
+///
+/// Emitted for every turn so a run's failure mode can be classified from ground
+/// truth (what the model actually returned) instead of regexing rendered prose.
+#[derive(Debug, Clone)]
+pub struct TurnDiag {
+    /// 1-based turn index within the run.
+    pub iteration: usize,
+    /// Provider-reported stop reason, as a stable lowercase string.
+    pub stop_reason: &'static str,
+    /// Number of text blocks in the assistant message.
+    pub text_blocks: usize,
+    /// Number of native tool-use blocks in the assistant message.
+    pub tool_blocks: usize,
+    /// True when the turn carried neither text nor a tool call (the Ollama
+    /// empty-completion flake).
+    pub empty: bool,
+    /// Number of tool calls recovered from assistant *text* because the model
+    /// wrote them as prose instead of using the native tool channel.
+    pub recovered_text_calls: usize,
+    /// True when this turn's tool calls exactly repeated the previous turn's.
+    pub repeated_tool_call: bool,
 }
 
 /// Silent implementation used for sub-agents and unit tests.
@@ -257,6 +293,11 @@ impl Agent {
             .map(harness_tools::ToolSchema::to_def)
             .collect();
 
+        // Previous turn's (name, input) tool-call signature, for loop detection.
+        let mut prev_call_sig: Vec<(String, serde_json::Value)> = Vec::new();
+        // Bounded so a model that only ever writes prose cannot spin here.
+        let mut recoveries_used = 0usize;
+
         loop {
             if session.iteration >= max_iter {
                 info!("max iterations reached");
@@ -275,11 +316,50 @@ impl Agent {
             );
 
             self.hook.on_thinking(session.iteration, max_iter);
-            let response = self
+            let mut response = self
                 .provider
                 .complete_with_tools(&messages, &tool_defs)
                 .await?;
             self.hook.on_thinking_done();
+
+            // -- Recover tool calls the model wrote as text ------------------------
+            // Small local models regularly drop out of the native tool-call
+            // channel and write the call into the message body instead. Without
+            // this the loop reads that as an ordinary end-of-turn and abandons
+            // the task one step from success. Bounded per run so a model that
+            // only ever emits text cannot spin here.
+            let mut recovered_text_calls = 0usize;
+            if response.stop_reason != StopReason::ToolUse
+                && recoveries_used < MAX_TEXT_CALL_RECOVERIES
+            {
+                if let Some(text) = response.message.text() {
+                    let known: Vec<String> =
+                        self.tools.schemas().iter().map(|s| s.name.clone()).collect();
+                    let calls: Vec<_> = harness_core::toolcall_text::parse_text_tool_calls(text)
+                        .into_iter()
+                        .filter(|c| known.iter().any(|k| k == &c.name))
+                        .collect();
+                    if !calls.is_empty() {
+                        recovered_text_calls = calls.len();
+                        recoveries_used += 1;
+                        warn!(
+                            count = calls.len(),
+                            "recovered tool call(s) written as text; executing them"
+                        );
+                        let blocks = calls
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, c)| ContentBlock::ToolUse {
+                                id: format!("recovered_{}_{i}", session.iteration),
+                                name: c.name,
+                                input: c.input,
+                            })
+                            .collect();
+                        response.message.content = MessageContent::Blocks(blocks);
+                        response.stop_reason = StopReason::ToolUse;
+                    }
+                }
+            }
 
             let preview = response.message.text().unwrap_or("").to_string();
             info!(
@@ -289,6 +369,44 @@ impl Agent {
                 "response: {}",
                 &preview[..preview.len().min(120)]
             );
+
+            // -- Turn diagnostics -------------------------------------------------
+            // Emitted before any behavioural branch so the taxonomy reflects what
+            // the model actually returned, not what the loop did about it.
+            let (text_blocks, tool_blocks, call_sig) = match &response.message.content {
+                MessageContent::Blocks(blocks) => {
+                    let mut texts = 0usize;
+                    let mut sig = Vec::new();
+                    for b in blocks {
+                        match b {
+                            ContentBlock::Text { text } if !text.is_empty() => texts += 1,
+                            ContentBlock::ToolUse { name, input, .. } => {
+                                sig.push((name.clone(), input.clone()));
+                            }
+                            _ => {}
+                        }
+                    }
+                    (texts, sig.len(), sig)
+                }
+                MessageContent::Text(t) => (usize::from(!t.is_empty()), 0, Vec::new()),
+            };
+            let repeated_tool_call = !call_sig.is_empty() && call_sig == prev_call_sig;
+            prev_call_sig = call_sig;
+
+            self.hook.on_turn_diag(&TurnDiag {
+                iteration: session.iteration,
+                stop_reason: match response.stop_reason {
+                    StopReason::EndTurn => "end_turn",
+                    StopReason::ToolUse => "tool_use",
+                    StopReason::MaxTokens => "max_tokens",
+                    StopReason::StopSequence => "stop_sequence",
+                },
+                text_blocks,
+                tool_blocks,
+                empty: text_blocks == 0 && tool_blocks == 0,
+                recovered_text_calls,
+                repeated_tool_call,
+            });
 
             // Append assistant message to running history and session log.
             messages.push(response.message.clone());
@@ -434,6 +552,24 @@ impl Agent {
                             tool_use_id,
                             content: output.content,
                         });
+                    }
+
+                    // A model that re-issues the identical call will keep doing
+                    // so until the iteration cap: the tool result it just got is
+                    // the same one it already ignored, so nothing in the context
+                    // pushes it elsewhere. Say so explicitly on the channel it is
+                    // already reading.
+                    if repeated_tool_call {
+                        if let Some(ContentBlock::ToolResult { content, .. }) =
+                            result_blocks.first_mut()
+                        {
+                            content.push_str(
+                                "\n\n[harness] This is the same tool call, with the same \
+                                 arguments, as your previous turn — so this is the same result. \
+                                 Repeating it again will not help. Either use this output to \
+                                 answer, or try a materially different command.",
+                            );
+                        }
                     }
 
                     // Feed results back as a tool-role message and continue.
@@ -971,5 +1107,127 @@ mod tests {
             all_text.iter().any(|t| t.contains("previous turn content")),
             "expected prior session history to be injected; messages: {all_text:?}"
         );
+    }
+    /// The failure that motivated the recovery path: the model writes the tool
+    /// call into the message body and ends its turn. Before, the loop read that
+    /// as a final answer and stopped one step from success.
+    #[tokio::test]
+    async fn tool_call_written_as_text_is_executed() {
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            end_turn_response(
+                "I'll check that.\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\"}}\n```",
+            ),
+            end_turn_response("done"),
+        ]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+
+        // The recovered call must have actually run: a tool-result message is
+        // present and carries the echoed payload.
+        let echoed = session.messages.iter().any(|m| {
+            m.role == Role::Tool
+                && match &m.content {
+                    MessageContent::Blocks(b) => b.iter().any(|blk| {
+                        matches!(blk, ContentBlock::ToolResult { content, .. } if content.contains("ping"))
+                    }),
+                    MessageContent::Text(t) => t.contains("ping"),
+                }
+        });
+        assert!(
+            echoed,
+            "expected the text-written tool call to execute, got: {:?}",
+            session.messages
+        );
+    }
+
+    /// A truncated fence — the model stopped mid-JSON — is still recoverable.
+    #[tokio::test]
+    async fn truncated_text_tool_call_is_recovered() {
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            end_turn_response("Here:\n```json\n{\"name\": \"echo\", \"input\": {\"message\": \"ping\""),
+            end_turn_response("done"),
+        ]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert!(session.messages.iter().any(|m| m.role == Role::Tool));
+    }
+
+    /// Ordinary prose must not be mistaken for a tool call — otherwise every
+    /// final answer mentioning JSON would restart the loop.
+    #[tokio::test]
+    async fn plain_final_answer_still_ends_the_run() {
+        let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
+            "There are no TODO comments in crates/.",
+        )]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert_eq!(session.status, harness_core::session::SessionStatus::Done);
+        assert!(
+            !session.messages.iter().any(|m| m.role == Role::Tool),
+            "no tool should have run for a plain prose answer"
+        );
+    }
+
+    /// An unknown tool name must not be executed just because it parsed.
+    #[tokio::test]
+    async fn text_call_to_unknown_tool_is_not_executed() {
+        let provider = Arc::new(ScriptedProvider::new(vec![end_turn_response(
+            "```json\n{\"name\": \"rm_rf\", \"input\": {\"path\": \"/\"}}\n```",
+        )]));
+
+        let agent = Agent {
+            provider,
+            memory: make_memory().await,
+            tools: {
+                let r = ToolRegistry::new();
+                r.register(EchoTool);
+                r
+            },
+            config: make_config(10),
+            depth: 0,
+            hook: Arc::new(NoopHook),
+        };
+
+        let session = agent.run("test goal").await.unwrap();
+        assert!(!session.messages.iter().any(|m| m.role == Role::Tool));
     }
 }

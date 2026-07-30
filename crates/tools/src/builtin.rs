@@ -10,6 +10,43 @@ use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+/// Reject a path argument that the sandbox will not accept, telling the model
+/// what to send instead.
+///
+/// A bare refusal ("absolute paths are not allowed") is a dead end for a small
+/// local model: it has no way to derive the accepted form, so it either retries
+/// the same call or abandons the task and apologises in prose. Naming the
+/// working directory and, where it can be derived, the exact corrected path
+/// turns the rejection into something the model can act on in one step.
+fn reject_path(tool: &str, path: &str) -> ToolOutput {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd_display = cwd.display();
+
+    // If the path points inside the working directory, hand back the relative
+    // form directly — the model can retry verbatim.
+    if let Ok(rel) = Path::new(path).strip_prefix(&cwd) {
+        return ToolOutput::err(format!(
+            "`{tool}` takes paths relative to the working directory ({cwd_display}), \
+             not absolute paths. Retry with path=\"{}\".",
+            rel.display()
+        ));
+    }
+
+    ToolOutput::err(format!(
+        "`{tool}` takes paths relative to the working directory ({cwd_display}), \
+         not absolute paths like \"{path}\". Retry with a path relative to that \
+         directory, or use the `bash` tool if you need to reach outside it."
+    ))
+}
+
+/// Reject a `..` path, pointing at the escape hatch that does work.
+fn reject_traversal(tool: &str) -> ToolOutput {
+    ToolOutput::err(format!(
+        "`{tool}` does not allow `..` in paths. Retry with a path that stays \
+         inside the working directory, or use the `bash` tool for anything outside it."
+    ))
+}
+
 /// Echo tool - useful for testing the tool pipeline.
 pub struct EchoTool;
 
@@ -112,10 +149,10 @@ impl ToolHandler for GrepTool {
         // Security: validate path to prevent accessing arbitrary host files
         let p = std::path::Path::new(&path);
         if p.is_absolute() || path.starts_with('/') {
-            return ToolOutput::err("absolute paths are not allowed");
+            return reject_path("grep", &path);
         }
         if p.components().any(|c| c == std::path::Component::ParentDir) {
-            return ToolOutput::err("path traversal (..) is not allowed");
+            return reject_traversal("grep");
         }
 
         let mut cmd = std::process::Command::new("grep");
@@ -236,10 +273,10 @@ impl ToolHandler for ReadFileTool {
 
         let p = Path::new(&path);
         if p.is_absolute() || path.starts_with('/') {
-            return ToolOutput::err("absolute paths are not allowed");
+            return reject_path("read_file", &path);
         }
         if p.components().any(|c| c == Component::ParentDir) {
-            return ToolOutput::err("path traversal (..) is not allowed");
+            return reject_traversal("read_file");
         }
 
         match std::fs::read_to_string(&path) {
@@ -435,10 +472,10 @@ impl ToolHandler for WriteFileTool {
 
         let p = Path::new(&raw);
         if p.is_absolute() || raw.starts_with('/') {
-            return ToolOutput::err("absolute paths are not allowed");
+            return reject_path("write_file", &raw);
         }
         if p.components().any(|c| c == Component::ParentDir) {
-            return ToolOutput::err("path traversal (..) is not allowed");
+            return reject_traversal("write_file");
         }
         let path_key = safe_edit_path_key(&raw);
         let file_exists = p.exists();
@@ -786,6 +823,53 @@ mod tests {
         let tool = ReadFileTool;
         let out = tool.call(json!({"path": "/etc/passwd"})).await;
         assert!(out.is_error);
+    }
+
+    /// A bare "not allowed" leaves a small model with nowhere to go — it retries
+    /// the same call or gives up in prose. The rejection must name the rule and
+    /// point at a way forward.
+    #[tokio::test]
+    async fn path_rejection_tells_the_model_what_to_do_instead() {
+        let out = ReadFileTool.call(json!({"path": "/etc/passwd"})).await;
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("relative"),
+            "rejection should name the accepted form: {}",
+            out.content
+        );
+        assert!(
+            out.content.contains("bash"),
+            "rejection should point at the escape hatch: {}",
+            out.content
+        );
+    }
+
+    /// When the path is inside the working directory the corrected form is
+    /// derivable, so hand it back verbatim — the model can retry in one step.
+    #[tokio::test]
+    async fn path_rejection_suggests_the_exact_relative_path() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let abs = cwd.join("Cargo.toml");
+        let out = ReadFileTool
+            .call(json!({ "path": abs.to_string_lossy() }))
+            .await;
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("Retry with path=\"Cargo.toml\""),
+            "expected an exact corrected path: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn traversal_rejection_is_actionable() {
+        let out = ReadFileTool.call(json!({"path": "../secret"})).await;
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("bash"),
+            "traversal rejection should point at the escape hatch: {}",
+            out.content
+        );
     }
 
     #[test]
